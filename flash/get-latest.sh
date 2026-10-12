@@ -32,6 +32,10 @@ echo ">> fetched file (compare with the release page):"
 ls -l firmware.factory.bin
 echo "   expected v0.1.7 size: 1,546,064 bytes — if yours differs, DO NOT"
 echo "   install; run this script again after 'git pull'."
+curl -fsSL --retry 3 -o version.txt --clobber \
+    "https://github.com/$REPO/releases/latest/download/version.txt" 2>/dev/null \
+    || gh release download --repo "$REPO" --pattern 'version.txt' --clobber
+echo ">> installed firmware release: $(cat version.txt 2>/dev/null || echo '?')"
 echo ">> done. Serve this folder, then open the page:"
 echo "   python3 -m http.server 8000"
 echo "   -> http://localhost:8000"

@@ -41,6 +41,28 @@
   <p><a href="console.html">→ Firmware already on the panel? Watch its live
   serial log in the browser</a> (same USB cable, zero-install).</p>
 
+  <p class="fine" id="installed-version" style="font-size:1rem; color:#7fd4ff;">
+    Checking which firmware this page will install…</p>
+
+  <script>
+    // Show the exact release version of the firmware sitting next to this
+    // page, so a stale download cannot be flashed by accident.
+    fetch('version.txt', { cache: 'no-store' })
+      .then(r => (r.ok ? r.text() : Promise.reject(r.status)))
+      .then(t => {
+        const v = t.trim() || '?';
+        document.getElementById('installed-version').textContent =
+          '▶ This page will install firmware version ' + v +
+          ' (from ' + location.host + '). If that is not the release you ' +
+          'expect, re-run get-latest.sh.';
+      })
+      .catch(() => {
+        document.getElementById('installed-version').textContent =
+          '⚠ version.txt not found next to this page — run get-latest.sh ' +
+          'first and re-check which firmware is here.';
+      });
+  </script>
+
   <p><strong>Browser support:</strong> Chrome, Edge or Opera on a desktop
   (Web&nbsp;Serial). Firefox and Safari cannot access USB serial devices.
   Localhost over plain HTTP is fine.</p>
