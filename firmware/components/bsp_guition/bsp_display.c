@@ -43,7 +43,8 @@ static esp_ldo_channel_handle_t  s_ldo;
 static esp_lcd_dsi_bus_handle_t  s_dsi_bus;
 static esp_lcd_panel_io_handle_t s_dbi_io;
 static esp_lcd_panel_handle_t    s_panel;
-static uint16_t                 *s_fb;       /* single panel framebuffer (as the vendor NewPanel code) */
+static uint16_t                 *s_fbs[2];   /* two panel framebuffers (as the vendor demo) */
+static int                       s_shown;    /* index of the buffer the panel scans */
 static bool                      s_ready;
 
 static esp_err_t backlight_init(void)
@@ -99,6 +100,7 @@ esp_err_t bsp_display_init(void)
 
     esp_lcd_dpi_panel_config_t dpi_config =
         JD9365_800_1280_PANEL_60HZ_DPI_CONFIG(LCD_COLOR_PIXEL_FORMAT_RGB565);
+    dpi_config.num_fbs = 2;   /* draw one while the panel scans the other */
     jd9365_vendor_config_t vendor_config = {
         .mipi_config = {
             .dsi_bus = s_dsi_bus,
@@ -120,29 +122,41 @@ esp_err_t bsp_display_init(void)
     ESP_RETURN_ON_ERROR(esp_lcd_panel_mirror(s_panel, true, true), TAG, "mirror");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(s_panel, true), TAG, "disp_on");
 
-    void *fb = NULL;
-    ESP_RETURN_ON_ERROR(esp_lcd_dpi_panel_get_frame_buffer(s_panel, 1, &fb), TAG, "get_fb");
-    s_fb = (uint16_t *)fb;
+    void *fb0 = NULL, *fb1 = NULL;
+    ESP_RETURN_ON_ERROR(esp_lcd_dpi_panel_get_frame_buffer(s_panel, 2, &fb0, &fb1),
+                        TAG, "get_fb");
+    s_fbs[0] = (uint16_t *)fb0;
+    s_fbs[1] = (uint16_t *)fb1;
+    s_shown = 0;   /* the driver starts scanning buffer 0 */
 
     bsp_display_backlight(true);
 
     s_ready = true;
-    ESP_LOGI(TAG, "JD9365 %dx%d RGB565 up, fb=%p", BSP_LCD_H_RES, BSP_LCD_V_RES, (void *)s_fb);
+    ESP_LOGI(TAG, "JD9365 %dx%d RGB565 up, fb=%p/%p", BSP_LCD_H_RES, BSP_LCD_V_RES,
+             (void *)s_fbs[0], (void *)s_fbs[1]);
     return ESP_OK;
 }
 
+/* The buffer NOT on screen: draw into this one. */
 uint16_t *bsp_display_framebuffer(void)
 {
-    return s_fb;
+    return s_fbs[s_shown ^ 1];
 }
 
+/* Present the back buffer. The driver switches the scan to it at the next
+ * frame boundary (its DMA restarts from cur_fb_index), so the panel never
+ * shows a half-drawn frame. */
 esp_err_t bsp_display_flush(int x0, int y0, int x1, int y1)
 {
-    if (!s_panel || !s_fb) {
+    if (!s_panel || !s_fbs[0]) {
         return ESP_ERR_INVALID_STATE;
     }
-    /* draw_buffer == the panel framebuffer -> driver does cache write-back only */
-    return esp_lcd_panel_draw_bitmap(s_panel, x0, y0, x1, y1, s_fb);
+    int next = s_shown ^ 1;
+    esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, x0, y0, x1, y1, s_fbs[next]);
+    if (err == ESP_OK) {
+        s_shown = next;
+    }
+    return err;
 }
 
 void bsp_display_selftest(void)
@@ -151,7 +165,7 @@ void bsp_display_selftest(void)
      * cycles solid colours on the raw framebuffer for a few seconds. Seeing
      * them => panel, DSI link, DPI timings and the flush path are all fine.
      * Staying black => panel init / power / LDO / reset / DSI signal. */
-    if (!s_panel || !s_fb) {
+    if (!s_panel || !s_fbs[0]) {
         ESP_LOGW(TAG, "selftest skipped: no framebuffer");
         return;
     }
