@@ -21,6 +21,7 @@ static StreamBufferHandle_t s_play_buf;
 static volatile bool s_capturing;
 static volatile bool s_turn_done;
 static jarvis_audio_silence_cb_t s_silence_cb;
+static volatile float s_mic_level;      /* 0..1, EMA of mic RMS (UI poll) */
 
 /* ---------------- playback ------------------------------------------------ */
 
@@ -73,6 +74,15 @@ void jarvis_audio_flush(void)
     s_turn_done = false;
 }
 
+/* ---------------- public mic level ---------------------------------------- */
+
+/* Exponential-average of the mic input level, 0..1 (1 ≈ loud speech).
+ * Non-blocking; the UI polls it for the waveform ring. */
+float jarvis_audio_mic_level(void)
+{
+    return s_mic_level;
+}
+
 /* ---------------- capture ------------------------------------------------- */
 
 static inline int16_t rms_of(const int16_t *s, size_t n)
@@ -115,6 +125,14 @@ static void capture_task(void *arg)
         jarvis_ws_send_audio((const uint8_t *)frame, (size_t)bytes);
 
         int rms = rms_of(frame, samples);
+        /* UI feedback: normalised, exponential average (γ≈0.6 per frame). */
+        {
+            float lv = (float)rms / 3000.0f;      /* ~0.3 → full scale      */
+            if (lv > 1.0f) {
+                lv = 1.0f;
+            }
+            s_mic_level = s_mic_level * 0.4f + lv * 0.6f;
+        }
         if (rms >= JARVIS_RMS_SPEECH) {
             speech_seen = true;
             silence_ms = 0;

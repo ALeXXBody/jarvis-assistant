@@ -156,7 +156,7 @@ drivers: `esp_lcd_jd9365`, `es8311` + `esp_codec_dev`, `esp_websocket_client`.
 | `jarvis_ws.c` | bridge client: fragmented-text reassembly, event dispatch, TTS PCM |
 | `jarvis_audio.c` | capture (RMS silence gate) + playback (stream-buffer ring) |
 | `jarvis_turn.c` | listening / thinking / speaking transitions, barge-in, approvals |
-| `jarvis_ui.c` | arc-reactor + transcript UI, direct RGB565 framebuffer |
+| `jarvis_ui.c` | instrument-HUD UI (AA rings, ticks, waveform, AA typography), double-buffered RGB565 |
 | `jarvis_state.c` | the shared snapshot every task reads |
 | `jarvis_wifi.c` | idempotent netif/event-loop init + ESP-Hosted station |
 | `jarvis_wake.c` | triggers: touch tap + serial console |
@@ -165,13 +165,24 @@ drivers: `esp_lcd_jd9365`, `es8311` + `esp_codec_dev`, `esp_websocket_client`.
 
 **Design notes**
 
-* The UI renders **directly into the MIPI-DSI framebuffer** — one RGB565 buffer
-  the panel scans continuously. A flush is a cache write-back, not a copy. No
+* The UI **paints every frame into the back buffer** the panel is not
+  currently scanning and flips it (no tearing). Rendering is vector work:
+  anti-aliased annuli/ticks/sweep with a mic-driven waveform ring and
+  anti-aliased typography from a generated font (`scripts/genfont.py`). No
   LVGL in v1 (the `ui_*` API keeps that swappable).
 * The **GSL3680 touch controller needs a firmware blob** loaded at boot; it is
   embedded in `components/bsp_guition/gsl3680_fw.c`.
-* Wi-Fi is **off by default**; the satellite runs fully offline until the C6
-  slave firmware is set up (see [`firmware/docs/BRINGUP.md`](firmware/docs/BRINGUP.md) §5).
+* Wi-Fi ships **enabled** (ESP-Hosted to the on-board ESP32-C6 is compiled
+  in). No credentials are stored anywhere in the repo — provision at runtime
+  over the serial console:
+
+  ```
+  w <ssid> <password>        # save to NVS and join
+  ```
+
+  The panel then connects on every boot until `w` is called again. If the C6
+  co-processor is missing its slave firmware the UI shows `wifi: C6 link
+  failed` and the log prints `esp_wifi_init failed`.
 * The **WS2812** reactor LED is gated off by default (data GPIO unverified).
 * **OTA** uses `esp_https_ota` against a release URL, with bootloader rollback.
   It needs the network, so it stays dormant until ESP-Hosted (Wi-Fi) is enabled;
@@ -430,8 +441,11 @@ Verify:
 4. **Full turn** — speak; the reply should play through the speaker and the
    transcript/reply should render on screen.
 
-Serial console keys: `l` listen · `s` stop · `x` abort · `a` allow ·
-`d` deny · `r` reconnect WS · `u` check for update · `+`/`-` volume.
+Serial console commands (one per line): `l` listen · `s` stop · `x` abort ·
+`a` allow · `d` deny · `r` reconnect WS · `u` check for update · `+`/`-`
+volume · `w <ssid> <pass>` join Wi-Fi · `srv <ws-url> [conv]` set brain URL ·
+`cfg` show settings · `state` runtime snapshot · `help`. Also: tap the screen
+to start/stop a turn.
 Full bring-up checklist + fault table: [`firmware/docs/BRINGUP.md`](firmware/docs/BRINGUP.md).
 
 ---
@@ -452,9 +466,14 @@ Full bring-up checklist + fault table: [`firmware/docs/BRINGUP.md`](firmware/doc
       pio run -e jarvis-panel -t upload
   ```
 
-  or edit `firmware/src/jarvis_config.h` locally and simply don't commit that
-  line. (The setter `jarvis_settings_set_server()` exists for a future runtime
-  console command, but v1 has no way to change the URL without a rebuild.)
+  or set it at runtime from the serial console (persisted in NVS):
+
+  ```
+  srv ws://192.0.2.10:8765/ws [conversation]
+  ```
+
+  (The build-time override via `PLATFORMIO_BUILD_FLAGS='-D JARVIS_DEFAULT_SERVER=…'`
+  still works; editable source stays in `firmware/src/jarvis_config.h`.)
 
 * **OTA source** — `JARVIS_DEFAULT_OTA_URL` in `firmware/src/jarvis_config.h`
   defaults to this repo's GitHub `releases/latest/download/`. Override it for a
@@ -473,8 +492,9 @@ Full bring-up checklist + fault table: [`firmware/docs/BRINGUP.md`](firmware/doc
   > `PLATFORMIO_BUILD_FLAGS` with `shlex`, so plain `"…"` quotes are stripped and
   > the string macro ends up malformed.
 
-* **Wi-Fi** — off by default. Enable ESP-Hosted and set SSID/password per
-  [`firmware/docs/BRINGUP.md`](firmware/docs/BRINGUP.md) §5.
+* **Wi-Fi** — ESP-Hosted to the on-board C6 ships enabled; the SSID/password
+  are provisioned at runtime (`w <ssid> <pass>` on the serial console) and
+  stored in the panel's NVS, never in the repo.
 * **Bridge** — `bridge/server.yaml` (ports, models, personas, voices). Secrets
   stay in `~/.hermes/.env` on the bridge host (the committed `server.yaml`
   contains env-var **names** and paths only).

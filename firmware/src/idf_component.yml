@@ -16,7 +16,7 @@ dependencies:
   # WebSocket client for the JARVIS bridge protocol.
   espressif/esp_websocket_client: "^1.8.0"
   # --- Wi-Fi via the on-board ESP32-C6 (ESP-Hosted over SDIO) ---------------
-  # P4 has no radio. Uncomment the two lines below AND enable the matching
-  # CONFIG_ESP_HOSTED_* / CONFIG_ESP_WIFI_REMOTE_ENABLED block in
-  # sdkconfig.defaults once the C6 slave firmware is flashed (docs/BRINGUP.md).
-  # espressif/esp_hosted: "^3.0.9"
+  # The C6 connects to the P4 over SDIO and must run the vendor slave
+  # firmware (JC-C6-slave, shipped on the board). Requires the matching
+  # CONFIG_ESP_HOSTED_* block in sdkconfig.defaults.
+  espressif/esp_hosted: "^3.0.9"

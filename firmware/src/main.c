@@ -148,9 +148,6 @@ void app_main(void)
 
     /* --- BSP bring-up (non-fatal) ---------------------------------------- */
     try_log("display", bsp_display_init(), &s_boot.display);
-#if JARVIS_DISPLAY_SELFTEST
-    bsp_display_selftest();
-#endif
     try_log("touch",   bsp_touch_init(),   &s_boot.touch);
     try_log("led",     bsp_led_init(),     &s_boot.led);
     try_log("battery", bsp_battery_init(), &s_boot.battery);

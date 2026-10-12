@@ -58,10 +58,9 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
 # Allow plain http:// too, so a self-hosted mirror on the LAN works.
 CONFIG_OTA_ALLOW_HTTP=y
 
-# --- ESP-Hosted (ESP32-C6 Wi-Fi over SDIO) ---
-# Wi-Fi on this board ONLY exists via the on-board ESP32-C6 + ESP-Hosted.
-# Enable the block below once the C6 slave firmware + ESP-Hosted component are
-# wired up (see docs/BRINGUP.md). Kept OFF so the base build compiles/tests
-# without the C6.
-# CONFIG_ESP_HOSTED_SDIO_HOST=y
-# CONFIG_ESP_WIFI_REMOTE_ENABLED=y
+# --- ESP-Hosted (ESP32-C6 Wi-Fi over SDIO) --------------------------------
+# The on-board ESP32-C6 provides the radio; the P4 talks to it over SDIO
+# through the esp_hosted component (see src/idf_component.yml). The C6 runs
+# the vendor slave firmware (JC-C6-slave) as shipped from the factory.
+CONFIG_ESP_HOSTED_SDIO_HOST=y
+CONFIG_ESP_WIFI_REMOTE_ENABLED=y

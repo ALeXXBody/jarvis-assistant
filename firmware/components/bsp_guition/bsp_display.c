@@ -158,29 +158,3 @@ esp_err_t bsp_display_flush(int x0, int y0, int x1, int y1)
     }
     return err;
 }
-
-void bsp_display_selftest(void)
-{
-    /* Diagnostic (see main.c: runs when JARVIS_DISPLAY_SELFTEST is defined):
-     * cycles solid colours on the raw framebuffer for a few seconds. Seeing
-     * them => panel, DSI link, DPI timings and the flush path are all fine.
-     * Staying black => panel init / power / LDO / reset / DSI signal. */
-    if (!s_panel || !s_fbs[0]) {
-        ESP_LOGW(TAG, "selftest skipped: no framebuffer");
-        return;
-    }
-    ESP_LOGW(TAG, "DISPLAY SELFTEST: colour cycle");
-    static const uint16_t colors[] = { 0xF800, 0x07E0, 0x001F, 0xFFFF };
-    static const char *const names[] = { "red", "green", "blue", "white" };
-    for (int round = 0; round < 2; round++) {
-        for (size_t i = 0; i < sizeof(colors) / sizeof(colors[0]); i++) {
-            ESP_LOGI(TAG, "selftest: %s", names[i]);
-            uint16_t *fb = bsp_display_framebuffer();
-            for (size_t p = 0; p < (size_t)BSP_LCD_H_RES * BSP_LCD_V_RES; p++) {
-                fb[p] = colors[i];
-            }
-            bsp_display_flush(0, 0, BSP_LCD_H_RES, BSP_LCD_V_RES);
-            vTaskDelay(pdMS_TO_TICKS(900));
-        }
-    }
-}

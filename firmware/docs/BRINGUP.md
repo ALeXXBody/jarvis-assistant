@@ -68,7 +68,7 @@ Shared I²C bus: **port 0** (touch + codec).
 4. BSP: display → touch → LED → battery.
 5. UI task, audio tasks, turn engine.
 6. WS client to `cfg->server_url`.
-7. Wi-Fi (ESP-Hosted) — expected to fail until the C6 is set up (see §5).
+7. Wi-Fi (ESP-Hosted) — expected to fail until the C6 is provisioned (`w` console command; see §5).
 8. Trigger tasks (touch tap + serial console).
 
 ## 3. Per-subsystem notes
@@ -156,24 +156,25 @@ The two `ota_*` slots are used for over-the-air updates (`src/jarvis_ota.c`):
 
 ## 5. Wi-Fi (ESP32-P4 has no radio)
 
-Wi-Fi is provided by the on-board **ESP32-C6** via ESP-Hosted over SDIO.
-Until the C6 slave firmware is flashed, the satellite runs **offline**:
-the UI, touch and audio all work; only the WS link to the brain is missing.
+Wi-Fi is provided by the on-board **ESP32-C6** via ESP-Hosted over SDIO and
+ships **enabled** in the build (`espressif/esp_hosted` + `CONFIG_ESP_WIFI_REMOTE_ENABLED`,
+both already on). The C6 runs the vendor slave firmware as shipped from the
+factory; if it is missing or a version-mismatch, `esp_wifi_init` fails and the
+panel shows `wifi: C6 link failed` — flash the matching ESP-Hosted **slave**
+image to the C6 (Espressif ESP-Hosted docs / vendor `JC-C6-slave_*.bin`).
 
-To enable:
+Provisioning (no credentials are ever stored in the repo):
 
-1. Flash the matching ESP-Hosted **slave** firmware to the C6 (see the Espressif
-   ESP-Hosted docs for P4 + C6 SDIO).
-2. Uncomment `espressif/esp_hosted` in `src/idf_component.yml`.
-3. Enable the `CONFIG_ESP_HOSTED_*` / `CONFIG_ESP_WIFI_REMOTE_ENABLED` block in
-   `sdkconfig.defaults` and set `-D JARVIS_HAVE_WIFI=1`.
-4. Set SSID/password in NVS (console command, see below) or `jarvis_config.h`.
+1. Open the serial console (`pio device monitor` or the browser `console.html`).
+2. Type `w <ssid> <password>` + Enter → saved to NVS, station starts.
+3. `wifi down` / `AP not found` / `password rejected` appear on the panel's
+   status line as they happen.
 
 ## 6. Serial console commands
 
-Single keypresses on the monitor (`jarvis_wake.c`):
+One command per line, Enter to send (`jarvis_wake.c console_task`):
 
-| Key | Action |
+| Command | Action |
 |---|---|
 | `l` | start listening (begin an utterance) |
 | `s` | stop listening → send `stop` (run the turn) |

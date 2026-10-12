@@ -39,3 +39,7 @@ void jarvis_audio_set_silence_cb(jarvis_audio_silence_cb_t cb);
 
 /* 0..100, non-blocking. */
 void jarvis_audio_set_volume(int percent);
+
+/* Mic input level as an exponential average, 0..1 (1 ≈ loud speech).
+ * UI polls this for the waveform ring; non-blocking. */
+float jarvis_audio_mic_level(void);

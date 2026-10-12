@@ -25,3 +25,4 @@ esp_err_t jarvis_net_init(void);
 esp_err_t jarvis_wifi_start(const char *ssid, const char *pass);
 
 bool jarvis_wifi_connected(void);
+bool jarvis_wifi_started(void);   /* esp_wifi_start() succeeded (not link up) */
