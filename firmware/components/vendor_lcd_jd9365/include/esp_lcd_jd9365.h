@@ -101,7 +101,7 @@ esp_err_t esp_lcd_new_panel_jd9365(const esp_lcd_panel_io_handle_t io, const esp
 #define JD9365_800_1280_PANEL_60HZ_DPI_CONFIG(px_format) \
     {                                                    \
         .dpi_clk_src = MIPI_DSI_DPI_CLK_SRC_DEFAULT,     \
-        .dpi_clock_freq_mhz = 60,                        \
+        .dpi_clock_freq_mhz = 80,                        \
         .virtual_channel = 0,                            \
         .pixel_format = px_format,                       \
         .num_fbs = 1,                                    \
@@ -111,9 +111,9 @@ esp_err_t esp_lcd_new_panel_jd9365(const esp_lcd_panel_io_handle_t io, const esp
             .hsync_back_porch = 20,                      \
             .hsync_pulse_width = 20,                     \
             .hsync_front_porch = 40,                     \
-            .vsync_back_porch = 8,                      \
+            .vsync_back_porch = 10,                      \
             .vsync_pulse_width = 4,                      \
-            .vsync_front_porch = 20,                     \
+            .vsync_front_porch = 30,                     \
         },                                               \
         .flags.use_dma2d = true,                         \
     }
