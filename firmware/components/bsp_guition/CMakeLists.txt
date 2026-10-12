@@ -25,6 +25,6 @@ idf_component_register(
         esp_adc
         esp_lcd
         esp_hw_support
-        espressif__esp_lcd_jd9365
+        vendor_lcd_jd9365
         espressif__esp_codec_dev
 )

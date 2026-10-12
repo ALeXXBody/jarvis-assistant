@@ -2,9 +2,13 @@
 ## These are fetched automatically by the IDF component manager during build.
 dependencies:
   idf: ">=5.4"
-  # MIPI-DSI JD9365 panel driver (same 10.1" 800x1280 panel family as the
-  # ESP32-P4 Function EV Board). Provides esp_lcd_new_panel_jd9365().
-  espressif/esp_lcd_jd9365: "^2.0.2"
+  # MIPI-DSI JD9365 panel driver: VENDORED, not the registry component.
+  # The registry release (v2.0.2+) drives this panel with DPI timings (80 MHz,
+  # wider vsync porches) and an init table that make it boot black: every call
+  # "succeeds" but the module never lights. The driver copied into
+  # components/vendor_lcd_jd9365 (from the working community BSP for this
+  # exact board) uses 60 MHz / narrower porches + the matching vendor init
+  # sequence and brings it up correctly. See that folder's CMakeLists.txt.
   # ES8311 mono audio codec (I2S + I2C).
   espressif/es8311: "^1.0.0"
   # Generic codec device layer (esp_codec_dev_read/write, volume, gain).
