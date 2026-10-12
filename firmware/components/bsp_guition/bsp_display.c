@@ -124,26 +124,6 @@ esp_err_t bsp_display_init(void)
 
     bsp_display_backlight(true);
 
-#if JARVIS_DISPLAY_SELFTEST
-    /* Diagnostic: cycle solid colours on the raw framebuffer for a few
-     * seconds. Seeing them => panel, DSI link, DPI timings and the
-     * write-back flush are all fine. Staying black => panel init / LDO /
-     * reset / DSI signal problem. Ran before the UI takes over. */
-    ESP_LOGW(TAG, "DISPLAY SELFTEST: colour cycle");
-    const uint16_t colors[] = { 0xF800, 0x07E0, 0x001F, 0xFFFF };
-    const char *names[] = { "red", "green", "blue", "white" };
-    for (int round = 0; round < 2; round++) {
-        for (size_t i = 0; i < sizeof(colors) / sizeof(colors[0]); i++) {
-            ESP_LOGI(TAG, "selftest: %s", names[i]);
-            for (size_t p = 0; p < (size_t)BSP_LCD_H_RES * BSP_LCD_V_RES; p++) {
-                s_fb[p] = colors[i];
-            }
-            esp_lcd_panel_draw_bitmap(s_panel, 0, 0, BSP_LCD_H_RES, BSP_LCD_V_RES, s_fb);
-            vTaskDelay(pdMS_TO_TICKS(900));
-        }
-    }
-#endif /* JARVIS_DISPLAY_SELFTEST */
-
     s_ready = true;
     ESP_LOGI(TAG, "JD9365 %dx%d RGB565 up, fb=%p", BSP_LCD_H_RES, BSP_LCD_V_RES, (void *)s_fb);
     return ESP_OK;
@@ -161,4 +141,29 @@ esp_err_t bsp_display_flush(int x0, int y0, int x1, int y1)
     }
     /* draw_buffer == the panel framebuffer -> driver does cache write-back only */
     return esp_lcd_panel_draw_bitmap(s_panel, x0, y0, x1, y1, s_fb);
+}
+
+void bsp_display_selftest(void)
+{
+    /* Diagnostic (see main.c: runs when JARVIS_DISPLAY_SELFTEST is defined):
+     * cycles solid colours on the raw framebuffer for a few seconds. Seeing
+     * them => panel, DSI link, DPI timings and the flush path are all fine.
+     * Staying black => panel init / power / LDO / reset / DSI signal. */
+    if (!s_panel || !s_fb) {
+        ESP_LOGW(TAG, "selftest skipped: no framebuffer");
+        return;
+    }
+    ESP_LOGW(TAG, "DISPLAY SELFTEST: colour cycle");
+    static const uint16_t colors[] = { 0xF800, 0x07E0, 0x001F, 0xFFFF };
+    static const char *const names[] = { "red", "green", "blue", "white" };
+    for (int round = 0; round < 2; round++) {
+        for (size_t i = 0; i < sizeof(colors) / sizeof(colors[0]); i++) {
+            ESP_LOGI(TAG, "selftest: %s", names[i]);
+            for (size_t p = 0; p < (size_t)BSP_LCD_H_RES * BSP_LCD_V_RES; p++) {
+                s_fb[p] = colors[i];
+            }
+            esp_lcd_panel_draw_bitmap(s_panel, 0, 0, BSP_LCD_H_RES, BSP_LCD_V_RES, s_fb);
+            vTaskDelay(pdMS_TO_TICKS(900));
+        }
+    }
 }

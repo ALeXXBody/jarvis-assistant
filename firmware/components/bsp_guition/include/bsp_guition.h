@@ -63,6 +63,8 @@ uint16_t *bsp_display_framebuffer(void);
 void      bsp_display_backlight(bool on);
 /* Push a dirty rectangle to the panel (needed when not direct-rendering). */
 esp_err_t bsp_display_flush(int x0, int y0, int x1, int y1);
+/* Diagnostic: cycles solid colours on the raw framebuffer (~7 s). */
+void      bsp_display_selftest(void);
 
 /* ------------------------------------------------------------------------- */
 /* Touch (GSL3680)                                                           */
