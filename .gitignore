@@ -10,6 +10,10 @@ firmware/components/*/build/
 # never committed).
 firmware/dist/
 
+# The browser installer fetches the image into flash/ (flash/get-latest.sh);
+# serve it, don't commit it.
+flash/firmware.factory.bin
+
 # Generated sdkconfig (rebuilt from sdkconfig.defaults on every build)
 firmware/sdkconfig
 firmware/sdkconfig.jarvis-panel

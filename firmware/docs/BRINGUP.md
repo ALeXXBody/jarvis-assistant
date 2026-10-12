@@ -24,6 +24,10 @@ ota_data + app) for one-shot flashing at `0x0`:
 esptool.py --chip esp32p4 write_flash 0x0 .pio/build/jarvis-panel/firmware.factory.bin
 ```
 
+**Browser flashing (no toolchain):** the repo's `flash/` folder has an
+ESP Web Tools installer page (and a manual ESP-Tool fallback) — see
+[flash/README.md](../../flash/README.md).
+
 Verified build footprint: Flash ≈ 24 %, static RAM ≈ 4.8 %.
 
 Air updates are enabled (see §4a); after the cable flash above you can push new

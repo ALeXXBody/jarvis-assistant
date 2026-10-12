@@ -43,6 +43,10 @@ pio run -e jarvis-panel -t upload
 pio device monitor -e jarvis-panel
 ```
 
+**No toolchain to install?** Flash from the browser instead — the repo has an
+ESP Web Tools installer page with a manual ESP-Tool fallback:
+[`../flash/`](../flash/README.md).
+
 Flash addresses: `bootloader.bin → 0x2000`, `partitions.bin → 0x9000`,
 `firmware.bin → 0x20000` (`ota_0`).
 

@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>J.A.R.V.I.S. satellite — install from the browser</title>
+<script type="module"
+  src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; padding: 3rem 1rem; font: 16px/1.6 system-ui, sans-serif;
+    background: #0b0f1a; color: #dbe4ff;
+  }
+  main { max-width: 46rem; margin: 0 auto; }
+  h1 { font-size: 1.7rem; color: #7fd4ff; border-bottom: 1px solid #1d2a4a; padding-bottom: .6rem; }
+  h2 { font-size: 1.15rem; color: #9fb4e8; margin-top: 2.2rem; }
+  a { color: #7fd4ff; }
+  code { background: #131b30; border: 1px solid #232f52; border-radius: 4px; padding: .1rem .35rem; font-family: ui-monospace, monospace; font-size: .92em; }
+  pre { background: #131b30; border: 1px solid #232f52; border-radius: 6px; padding: .8rem 1rem; overflow-x: auto; }
+  ol li, ul li { margin: .3rem 0; }
+  .card {
+    background: #101a33; border: 1px solid #23335e; border-radius: 10px;
+    padding: 1.2rem 1.4rem; margin: 1.2rem 0;
+  }
+  esp-web-install-button { display: block; }
+  note, .fine { color: #7a89b8; font-size: .9rem; }
+</style>
+</head>
+<body>
+<main>
+
+  <h1>J.A.R.V.I.S. satellite — install from the browser</h1>
+
+  <p>Flash the <strong>GUITION JC8012P4A1C</strong> 10.1″ panel (ESP32-P4)
+  straight from this page over USB — no toolchain, no PlatformIO, no
+  <code>esptool</code> install. Powered by
+  <a href="https://esphome.github.io/esp-web-tools/">ESP Web Tools</a>
+  (the same installer technology ESPHome uses).</p>
+
+  <p><strong>Browser support:</strong> Chrome, Edge or Opera on a desktop
+  (Web&nbsp;Serial). Firefox and Safari cannot access USB serial devices.
+  Localhost over plain HTTP is fine.</p>
+
+  <div class="card">
+    <h2 style="margin-top:0">1 · Plug in</h2>
+    <ol>
+      <li>Connect the panel to this computer with a <strong>USB-C data
+          cable</strong> (not charge-only).</li>
+      <li>Power it from a <strong>≥ 2 A 5 V supply</strong> — a weak supply can
+          brown out during the erase/flash — or keep it on its own PSU and plug
+          the cable into the <strong>other</strong> USB-C port.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">2 · Install</h2>
+    <p>Click <em>Connect</em>, pick the panel’s serial port in the browser’s
+    device chooser, then accept the browser prompt. The install erases the
+    flash (including whatever demo the factory left, and settings) and writes
+    the merged JARVIS image at offset 0.</p>
+
+    <esp-web-install-button manifest="manifest.json">
+      <span slot="unsupported">This browser can’t install on ESP devices — use
+        Chrome, Edge or Opera on a desktop, or the manual flasher below.</span>
+      <span slot="not-allowed">This page must be served over HTTPS or from
+        localhost — see the manual flasher below.</span>
+    </esp-web-install-button>
+
+    <p class="fine">First flash takes a few minutes (16 MB erase + ~1 MB at
+    −b 115200). Keep the page tab focused.</p>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">3 · First boot</h2>
+    <p>The panel boots into JARVIS and starts a background update check against
+    its configured release URL. To configure <em>your</em> brain URL for the
+    first boot — see
+    <a href="https://github.com/ALeXXBody/jarvis-assistant/blob/main/README.md#configuration">the
+    README’s Configuration section</a> — or watch
+    <code>pio device monitor</code> for the console keys.</p>
+  </div>
+
+  <h2>Manual fallback (no custom page): Espressif’s ESP Tool</h2>
+  <p>If the one-click button misbehaves, any address-based web flasher works the
+  same way. With <a href="https://espressif.github.io/esptool-js/">Espressif’s
+  official ESP Tool (esptool-js)</a> or the equivalent
+  <a href="https://esp.huhn.me/">esp.huhn.me</a>:</p>
+  <ol>
+    <li>Download <code>firmware.factory.bin</code> from this repository’s
+        <a href="https://github.com/ALeXXBody/jarvis-assistant/releases/latest">latest
+        release</a>.</li>
+    <li>Open the ESP Tool page → <strong>Connect</strong> → pick the panel’s
+        port (P4 exposes USB-Serial-JTAG; on Linux that’s
+        <code>/dev/ttyACM0</code>).</li>
+    <li>Baud <strong>460800</strong> or <strong>921600</strong>.</li>
+    <li>Add <code>firmware.factory.bin</code> with <strong>Flash address
+        0x0</strong>.</li>
+    <li><strong>Leave all three flash settings (“mode / frequency / size”) on
+        “keep”</strong> — the merged image already carries the correct
+        qio / 80 MHz / 16 MB settings in its header, and browser flashers
+        don’t patch them after the fact.</li>
+    <li>Press <strong>Program</strong>, then power-cycle the panel when done.</li>
+  </ol>
+
+  <h2>Troubleshooting</h2>
+  <ul>
+    <li><strong>No port in the chooser</strong> — hold <code>BOOT</code>, tap
+        <code>RESET</code>/<code>PWR</code>, release <code>BOOT</code> to force
+        ROM download mode, then connect again.</li>
+    <li><strong>“Failed to claim interface”</strong> — close any open serial
+        monitor (<code>pio device monitor</code> locks the port) or, on Linux,
+        add yourself to the <code>dialout</code> group and re-login.</li>
+    <li><strong>Flash dies mid-way</strong> — power brownout; raise to a ≥ 2 A
+        supply before retrying.</li>
+  </ul>
+
+  <p class="fine">This page pairs with <code>manifest.json</code> in the same
+  folder — the <code>.bin</code> must be served from this same origin (browser
+  fetch of GitHub release assets is blocked by CORS). Standing instructions
+  live in the repository’s <code>flash/README.md</code>.</p>
+
+</main>
+</body>
+</html>

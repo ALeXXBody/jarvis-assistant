@@ -1,0 +1,54 @@
+# Publish the browser installer (flash/) to GitHub Pages on every release.
+#
+# The manifest and the .bin must be served from the SAME origin (GitHub release
+# assets are not CORS-accessible), so the released image is copied next to the
+# page. Pages requires the repository to be public; it must be enabled once
+# under Settings -> Pages with "GitHub Actions" as the source.
+name: flasher-pages
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the released panel image
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release download "$TAG" --pattern 'firmware.factory.bin' \
+              --dir flash --clobber
+
+      - name: Stamp the manifest with the release version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          # tag must name a directory-manifest version "latest release" -> vX.Y.Z
+          sed -i "s/\"latest release\"/\"$TAG\"/" flash/manifest.json
+          python3 -m json.tool flash/manifest.json > /dev/null
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: flash
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -47,3 +47,7 @@ gh release create "$VERSION" \
 echo
 echo ">> published. The panel's OTA source is:"
 echo "   https://github.com/$REPO/releases/latest/download/"
+echo
+echo ">> To test the browser installer from this release:"
+echo "   cd flash && ./get-latest.sh && python3 -m http.server 8000"
+echo "   (open http://localhost:8000 in Chrome/Edge)"

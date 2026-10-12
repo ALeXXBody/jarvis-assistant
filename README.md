@@ -111,6 +111,7 @@ Full research, spec sheet and options: [`PANEL_RESEARCH.md`](PANEL_RESEARCH.md).
 │   ├── platformio.ini      build config (env: jarvis-panel)
 │   ├── sdkconfig.defaults  P4 / flash / PSRAM / partition defaults
 │   └── partitions.csv      16 MB flash layout
+├── flash/                  browser installer (ESP Web Tools) + manual fallback
 ├── bridge/                 the brain: voice pipeline (STT/LLM/TTS) + WS server
 │   ├── server.py           WebSocket server the panel talks to
 │   ├── llmproxy.py         LLM transport shim (forces reasoning off)
@@ -224,6 +225,40 @@ Flash: [==        ]  24.4% (used 974874 bytes from 3997696 bytes)
 
 The P4 exposes a built-in **USB-Serial-JTAG** interface, so no external
 programmer is needed — just the USB-C cable.
+
+Three ways to flash, pick any:
+
+### Option A — with a browser (no toolchain install)
+
+A ready-made [ESP Web Tools](https://esphome.github.io/esp-web-tools/) page
+(the same installer tech ESPHome uses) lives in [`flash/`](flash/). It detects
+the panel, erases it, and writes the merged image — entirely from the browser.
+
+```bash
+git clone https://github.com/ALeXXBody/jarvis-assistant.git
+cd jarvis-assistant/flash
+./get-latest.sh              # fetch firmware.factory.bin from the latest release
+python3 -m http.server 8000  # serve the folder
+# open http://localhost:8000 in Chrome / Edge / Opera → Connect → Install
+```
+
+* Needs a **Chromium-based desktop browser** (Web Serial). Firefox/Safari don't
+  work; `http://localhost` is fine.
+* Once this repository is **public**, `.github/workflows/flasher.yml` also
+  publishes this page to GitHub Pages on every release — then it's a plain
+  one-click URL, no clone needed. (`manifest.json` and the `.bin` must be
+  served from the same origin: GitHub release assets are not CORS-readable,
+  which is why the page carries the image rather than linking it.)
+* A **manual fallback** is on the same page: Espressif's official
+  [ESP Tool (esptool-js)](https://espressif.github.io/esptool-js/) or
+  [esp.huhn.me](https://esp.huhn.me) — add `firmware.factory.bin`
+  (from the release) at **address 0x0**, leave the three flash settings on
+  **keep** (the merged image already carries qio / 80 MHz / 16 MB in its
+  header), Program.
+
+Details and troubleshooting: [`flash/README.md`](flash/README.md).
+
+### Option B — with PlatformIO (preferred for development)
 
 ### 1. Connect
 
@@ -351,12 +386,15 @@ and creates the GitHub release with `gh`. To point a panel at a different source
 ### First-time (cable) flash from a release
 
 Download `firmware.factory.bin` from the release and write it in one shot — no
-PlatformIO needed:
+PlatformIO needed. Either with `esptool`:
 
 ```bash
 esptool.py --chip esp32p4 -p /dev/ttyACM0 -b 1500000 \
     write_flash 0x0 firmware.factory.bin
 ```
+
+or entirely in the browser with the [`flash/`](flash/) page above (Option A),
+which needs no command-line tool at all.
 
 ---
 
