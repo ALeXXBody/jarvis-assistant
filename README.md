@@ -258,6 +258,11 @@ python3 -m http.server 8000  # serve the folder
 
 Details and troubleshooting: [`flash/README.md`](flash/README.md).
 
+The same folder also ships [`flash/console.html`](flash/console.html) — a
+live **serial log viewer** in the browser (Web Serial, same USB cable, no
+Wi-Fi): connect, watch the boot log, send the console keys (`listen`/`stop`/
+`update`/…), and *Save log*/*Copy* to share exactly what the panel printed.
+
 ### Option B — with PlatformIO (preferred for development)
 
 ### 1. Connect

@@ -34,6 +34,7 @@ installable from a plain URL with a single click — no clone, no script.
 | File | Purpose |
 |---|---|
 | `index.html` | the installer page (ESP Web Tools button + manual-flash fallback) |
+| `console.html` | live serial log viewer in the browser (Web Serial over USB, zero-install) |
 | `manifest.json` | ESP Web Tools manifest: `chipFamily ESP32-P4`, the merged image at **offset 0** |
 | `get-latest.sh` | fetches `firmware.factory.bin` from the latest release |
 | `firmware.factory.bin` | (generated, not committed) the image, from `flash/get-latest.sh` or `pio run` |
