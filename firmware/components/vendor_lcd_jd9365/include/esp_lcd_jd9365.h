@@ -71,7 +71,10 @@ esp_err_t esp_lcd_new_panel_jd9365(const esp_lcd_panel_io_handle_t io, const esp
     {                                                    \
         .bus_id = 0,                                     \
         .num_data_lanes = 2,                             \
-        .phy_clk_src = MIPI_DSI_PHY_CLK_SRC_DEFAULT,     \
+        /* 0 = chip default source (the IDF <5.5 legacy alias used       \
+         * upstream aborts in mipi_dsi_ll_set_phy_pllref_clock_source    \
+         * during esp_lcd_new_dsi_bus on IDF 5.5). */                    \
+        .phy_clk_src = 0,                                \
         .lane_bit_rate_mbps = 1500,                      \
     }
 
