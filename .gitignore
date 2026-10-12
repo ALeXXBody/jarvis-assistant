@@ -6,6 +6,10 @@ firmware/build/
 firmware/managed_components/
 firmware/components/*/build/
 
+# Release artifacts produced by firmware/tools/release.sh (uploaded to GitHub,
+# never committed).
+firmware/dist/
+
 # Generated sdkconfig (rebuilt from sdkconfig.defaults on every build)
 firmware/sdkconfig
 firmware/sdkconfig.jarvis-panel

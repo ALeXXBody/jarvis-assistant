@@ -24,7 +24,10 @@ ota_data + app) for one-shot flashing at `0x0`:
 esptool.py --chip esp32p4 write_flash 0x0 .pio/build/jarvis-panel/firmware.factory.bin
 ```
 
-Verified build footprint: Flash ≈ 21 %, static RAM ≈ 4.8 %.
+Verified build footprint: Flash ≈ 24 %, static RAM ≈ 4.8 %.
+
+Air updates are enabled (see §4a); after the cable flash above you can push new
+builds as GitHub releases instead of reflashing.
 
 ## 1. Pin map
 
@@ -130,6 +133,23 @@ Shared I²C bus: **port 0** (touch + codec).
 PlatformIO picks the app load address from the `ota_0` subtype first, so the
 primary slot is named `ota_0` (at 0x20000) — not `factory`.
 
+## 4a. OTA updates
+
+The two `ota_*` slots are used for over-the-air updates (`src/jarvis_ota.c`):
+
+* The panel fetches `version.txt` + `firmware.bin` from a release URL
+  (`JARVIS_DEFAULT_OTA_URL`), compares versions, and writes the new image to the
+  **inactive** slot, then reboots into it.
+* `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y` (plus the full mbedTLS CA bundle for
+  GitHub HTTPS and `CONFIG_OTA_ALLOW_HTTP` for LAN mirrors) is set in
+  `sdkconfig.defaults`.
+* A fresh OTA image boots in **pending verify**. `main.c` calls
+  `jarvis_ota_mark_valid()` once bring-up completes, which cancels the rollback;
+  if the image crashes first, the bootloader reverts to the previous slot. The
+  serial log prints `(PENDING VERIFY)` while an image is unconfirmed.
+* Trigger a check manually with `u` on the console; `tools/release.sh` publishes
+  the assets. Details: [root README](../../README.md#updating-over-the-air-ota).
+
 ## 5. Wi-Fi (ESP32-P4 has no radio)
 
 Wi-Fi is provided by the on-board **ESP32-C6** via ESP-Hosted over SDIO.
@@ -157,6 +177,7 @@ Single keypresses on the monitor (`jarvis_wake.c`):
 | `a` | approve a pending `approval_request` |
 | `d` | deny a pending `approval_request` |
 | `r` | (re)start the WebSocket client |
+| `u` | check for a firmware update (OTA) |
 | `+` / `-` | volume up / down (persisted to NVS) |
 
 A **touch tap** anywhere on the panel does the same as `l` (toggle: starts
@@ -174,3 +195,5 @@ listening, or stops/aborts depending on the current state) — see
 | No mic / no audio | ES8311 not opening: check I²C addr + `esp_codec_dev_open` log |
 | WS keeps dropping | server reachable? ping timeout tuning in `jarvis_ws.c` |
 | WS connects, no reply | bridge services up on the LXC? see `BRIDGE_NOTES.md` |
+| `u` says "could not read version.txt" | repo still private, no release asset, or no network |
+| Panel reboots into old firmware | new image never confirmed — it crashed before `jarvis_ota_mark_valid()`; rollback worked |

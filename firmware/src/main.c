@@ -33,10 +33,7 @@
 #include "jarvis_ws.h"
 #include "jarvis_wifi.h"
 #include "jarvis_wake.h"
-
-#ifndef JARVIS_FW_VERSION
-#define JARVIS_FW_VERSION "dev"
-#endif
+#include "jarvis_ota.h"
 
 static const char *TAG = "jarvis";
 
@@ -102,6 +99,7 @@ void app_main(void)
 
     ESP_ERROR_CHECK(jarvis_settings_init());
     jarvis_state_init();
+    TRY("ota", jarvis_ota_init());
     const jarvis_settings_t *cfg = jarvis_settings();
 
     /* --- network stack (needed by the WS client even without Wi-Fi) ------- */
@@ -135,6 +133,13 @@ void app_main(void)
 
     ESP_LOGI(TAG, "boot complete: state=%s server=%s",
              jarvis_state_name(jarvis_state_get()), cfg->server_url);
+
+    /* --- firmware: confirm this image is good, then look for an update ---- */
+    /* With bootloader rollback enabled a fresh OTA image boots in "pending
+     * verify"; reaching this point means bring-up succeeded, so cancel the
+     * rollback. Then run one background update check (no-op if no URL). */
+    jarvis_ota_mark_valid();
+    jarvis_ota_autocheck_start();
 
     /* app_main may return; all work runs in the tasks above. */
 }

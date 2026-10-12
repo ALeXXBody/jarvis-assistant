@@ -9,8 +9,10 @@ speaks the reply while showing a live arc-reactor status display and transcript.
   TTS (piper) all run on a box on your LAN.
 * **Custom firmware.** Not the vendor demo — an ESP-IDF app written for this
   exact board, with a hand-rolled direct-framebuffer UI (no LVGL).
-* **Small and clean.** Builds in ~25 s, no compiler warnings; Flash ≈ 21 %,
-  static RAM ≈ 4.8 % of the app slots.
+* **Small and clean.** Builds in well under a minute, no compiler warnings;
+  Flash ≈ 24 %, static RAM ≈ 4.8 % of the app slots.
+* **Self-updating.** The panel pulls new firmware from GitHub releases over the
+  air (with bootloader rollback safety) — no cable needed after the first flash.
 
 > Status: **firmware builds clean; not yet validated on physical hardware.**
 > Display / touch / audio drivers are written against verified driver APIs and
@@ -27,6 +29,7 @@ speaks the reply while showing a live arc-reactor status display and transcript.
 - [Firmware](#firmware)
 - [Building](#building)
 - [Flashing the panel](#flashing-the-panel)
+- [Updating over the air (OTA)](#updating-over-the-air-ota)
 - [First boot & verification](#first-boot--verification)
 - [Configuration](#configuration)
 - [Documentation](#documentation)
@@ -104,6 +107,7 @@ Full research, spec sheet and options: [`PANEL_RESEARCH.md`](PANEL_RESEARCH.md).
 │   │                       + embedded GSL3680 touch firmware blob
 │   ├── boards/             custom pioarduino board definition
 │   ├── docs/               BRINGUP.md, PROTOCOL.md
+│   ├── tools/              release.sh — build + publish a firmware release
 │   ├── platformio.ini      build config (env: jarvis-panel)
 │   ├── sdkconfig.defaults  P4 / flash / PSRAM / partition defaults
 │   └── partitions.csv      16 MB flash layout
@@ -155,6 +159,7 @@ drivers: `esp_lcd_jd9365`, `es8311` + `esp_codec_dev`, `esp_websocket_client`.
 | `jarvis_state.c` | the shared snapshot every task reads |
 | `jarvis_wifi.c` | idempotent netif/event-loop init + ESP-Hosted station |
 | `jarvis_wake.c` | triggers: touch tap + serial console |
+| `jarvis_ota.c` | over-the-air updates: version check + `esp_https_ota` + rollback |
 | `bsp_guition/` | board support: display, touch, audio, LED, battery |
 
 **Design notes**
@@ -167,6 +172,9 @@ drivers: `esp_lcd_jd9365`, `es8311` + `esp_codec_dev`, `esp_websocket_client`.
 * Wi-Fi is **off by default**; the satellite runs fully offline until the C6
   slave firmware is set up (see [`firmware/docs/BRINGUP.md`](firmware/docs/BRINGUP.md) §5).
 * The **WS2812** reactor LED is gated off by default (data GPIO unverified).
+* **OTA** uses `esp_https_ota` against a release URL, with bootloader rollback.
+  It needs the network, so it stays dormant until ESP-Hosted (Wi-Fi) is enabled;
+  building with the C6 off is unaffected.
 
 ---
 
@@ -205,8 +213,8 @@ Output:
 A successful build looks like:
 
 ```
-RAM:   [          ]   4.8% (used 36492 bytes from 768000 bytes)
-Flash: [==        ]  21.1% (used 841718 bytes from 3997696 bytes)
+RAM:   [          ]   4.8% (used 36716 bytes from 768000 bytes)
+Flash: [==        ]  24.4% (used 974874 bytes from 3997696 bytes)
 ========================= [SUCCESS] =========================
 ```
 
@@ -295,6 +303,63 @@ pio device monitor -e jarvis-panel        # 115200 baud
 
 ---
 
+## Updating over the air (OTA)
+
+Once a panel has been flashed once, it never needs a cable again. Each GitHub
+release publishes two images plus a version string:
+
+| Asset | Used for |
+|---|---|
+| `firmware.factory.bin` | full image for a **first-time** USB flash (`esptool`, offset `0x0`) |
+| `firmware.bin` | the **app image** the panel pulls for OTA |
+| `version.txt` | bare version string used for the "is an update available?" check |
+
+### How the panel updates
+
+* **On boot** it fetches `version.txt` from its OTA source (default: this repo's
+  `releases/latest/download/`), compares it with the version compiled into the
+  running image (`JARVIS_FW_VERSION`), and updates only if the release is newer.
+* **On demand** — press `u` on the serial console to force a check.
+* The new image is written to the **inactive** OTA slot and the panel reboots
+  into it.
+* **Rollback safety** — the fresh image boots in *pending verify*; if it does not
+  confirm itself healthy, the bootloader automatically reverts to the previous
+  slot. A bad update cannot brick the panel.
+
+```
+release ──► version.txt  ──► compare with running fw
+            firmware.bin ──► write inactive slot ──► reboot ──► mark valid
+```
+
+### Publishing a release
+
+```bash
+cd firmware
+tools/release.sh v0.2.0 "Display timing fix; touch axis correction"
+```
+
+This stamps the version into the build, writes the assets to `firmware/dist/`,
+and creates the GitHub release with `gh`. To point a panel at a different source
+(a mirror, or your own server), override `JARVIS_DEFAULT_OTA_URL` — see
+[Configuration](#configuration).
+
+> **Private repos.** GitHub serves release assets to anonymous requests only
+> once the repository is public. OTA works out of the box after this repo is
+> made public; until then, self-host the three assets and build the panel with
+> `JARVIS_DEFAULT_OTA_URL` pointing at them.
+
+### First-time (cable) flash from a release
+
+Download `firmware.factory.bin` from the release and write it in one shot — no
+PlatformIO needed:
+
+```bash
+esptool.py --chip esp32p4 -p /dev/ttyACM0 -b 1500000 \
+    write_flash 0x0 firmware.factory.bin
+```
+
+---
+
 ## First boot & verification
 
 On a healthy boot the serial log shows (abridged):
@@ -323,7 +388,7 @@ Verify:
    transcript/reply should render on screen.
 
 Serial console keys: `l` listen · `s` stop · `x` abort · `a` allow ·
-`d` deny · `r` reconnect WS · `+`/`-` volume.
+`d` deny · `r` reconnect WS · `u` check for update · `+`/`-` volume.
 Full bring-up checklist + fault table: [`firmware/docs/BRINGUP.md`](firmware/docs/BRINGUP.md).
 
 ---
@@ -347,6 +412,19 @@ Full bring-up checklist + fault table: [`firmware/docs/BRINGUP.md`](firmware/doc
   or edit `firmware/src/jarvis_config.h` locally and simply don't commit that
   line. (The setter `jarvis_settings_set_server()` exists for a future runtime
   console command, but v1 has no way to change the URL without a rebuild.)
+
+* **OTA source** — `JARVIS_DEFAULT_OTA_URL` in `firmware/src/jarvis_config.h`
+  defaults to this repo's GitHub `releases/latest/download/`. Override it for a
+  mirror or self-hosted server, or set it to `""` to disable updating:
+
+  ```sh
+  PLATFORMIO_BUILD_FLAGS='-D JARVIS_DEFAULT_OTA_URL="http://192.0.2.60:8000/fw/"' \
+      pio run -e jarvis-panel
+  ```
+
+  The URL must point at a **directory**; the updater appends `version.txt` and
+  `firmware.bin`. The (optional) runtime value lives in NVS and can be changed
+  with `jarvis_settings_set_ota_url()`.
 
 * **Wi-Fi** — off by default. Enable ESP-Hosted and set SSID/password per
   [`firmware/docs/BRINGUP.md`](firmware/docs/BRINGUP.md) §5.

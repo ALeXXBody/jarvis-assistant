@@ -64,6 +64,40 @@ ESP32-P4 needs the **pioarduino** platform
 ESP-IDF v5.5.x and the RISC-V toolchain. `platformio.ini` already points at it.
 Board definition: `boards/gc_jc8012p4a1c.json`.
 
+## Over-the-air updates (OTA)
+
+After the first cable flash the panel updates itself from a release URL — by
+default this repo's GitHub `releases/latest/download/`, which must publish:
+
+| Asset | Purpose |
+|---|---|
+| `version.txt` | bare version string, compared with the running image |
+| `firmware.bin` | app image written to the inactive OTA slot |
+
+* **On boot** the panel checks once (only if the release is newer than the
+  running `JARVIS_FW_VERSION`, so a stable release never downgrades).
+* **On demand** — press `u` on the serial console (`pio device monitor`) to force
+  a check now.
+* **Rollback safety** — `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` is on: a freshly
+  flashed image boots in *pending verify* and the bootloader reverts it unless
+  `jarvis_ota_mark_valid()` runs after a healthy boot (it does, at the end of
+  `app_main`). A failed update cannot brick the panel.
+* **Source** — `JARVIS_DEFAULT_OTA_URL` in `src/jarvis_config.h` (NVS-backed at
+  runtime via `jarvis_settings_set_ota_url()`). Set it to `""` to disable, or
+  override per build:
+
+  ```bash
+  PLATFORMIO_BUILD_FLAGS='-D JARVIS_DEFAULT_OTA_URL="http://192.0.2.60:8000/fw/"' \
+      pio run -e jarvis-panel
+  ```
+
+* **Publishing** — `tools/release.sh v0.2.0 "notes"` builds with the version
+  stamped in and uploads the release with `gh`. See the
+  [root README](../README.md#updating-over-the-air-ota).
+
+OTA requires the network (Wi-Fi via ESP-Hosted), so with the C6 disabled the
+check simply logs and skips — the build and bench behaviour are unchanged.
+
 ## How it works
 
 ```
@@ -88,6 +122,7 @@ Board definition: `boards/gc_jc8012p4a1c.json`.
 * `jarvis_turn.c` — listening/thinking/speaking transitions, barge-in, approvals.
 * `jarvis_ui.c` — arc reactor + transcript, 800×1280 RGB565, 8×8 ASCII font.
 * `jarvis_state.c` — the shared snapshot all tasks read.
+* `jarvis_ota.c` — release version check + `esp_https_ota` + rollback handling.
 * `bsp_guition/` — board support: display, touch, audio, LED, battery
   (see `docs/BRINGUP.md`).
 
@@ -101,12 +136,13 @@ firmware/
 ├── boards/                 custom pioarduino board definition
 ├── src/                    application (jarvis_*)
 ├── components/bsp_guition/ board support package + embedded touch firmware
+├── tools/                  release.sh (build + publish a firmware release)
 └── docs/                   BRINGUP.md, PROTOCOL.md
 ```
 
 ## Status
 
-* Builds clean (no warnings) for `esp32p4`; Flash ≈ 21 %, static RAM ≈ 4.8 %.
+* Builds clean (no warnings) for `esp32p4`; Flash ≈ 24 %, static RAM ≈ 4.8 %.
 * Display, touch, audio, battery drivers are written against verified driver
   APIs; **not yet validated on physical hardware** — that is the next step.
 * Wi-Fi (ESP-Hosted to the C6) is gated off; the satellite runs offline until

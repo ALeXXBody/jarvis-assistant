@@ -32,6 +32,7 @@ esp_err_t jarvis_settings_init(void)
         strlcpy(s_cfg.wifi_ssid, JARVIS_DEFAULT_WIFI_SSID, sizeof(s_cfg.wifi_ssid));
         strlcpy(s_cfg.wifi_pass, JARVIS_DEFAULT_WIFI_PASS, sizeof(s_cfg.wifi_pass));
         strlcpy(s_cfg.server_url, JARVIS_DEFAULT_SERVER, sizeof(s_cfg.server_url));
+        strlcpy(s_cfg.ota_url, JARVIS_DEFAULT_OTA_URL, sizeof(s_cfg.ota_url));
         strlcpy(s_cfg.conversation, JARVIS_DEFAULT_CONVERSATION, sizeof(s_cfg.conversation));
         s_cfg.volume = 75;
         return ESP_OK;
@@ -40,6 +41,7 @@ esp_err_t jarvis_settings_init(void)
     load_str(h, "wifi_ssid", s_cfg.wifi_ssid, sizeof(s_cfg.wifi_ssid), JARVIS_DEFAULT_WIFI_SSID);
     load_str(h, "wifi_pass", s_cfg.wifi_pass, sizeof(s_cfg.wifi_pass), JARVIS_DEFAULT_WIFI_PASS);
     load_str(h, "server_url", s_cfg.server_url, sizeof(s_cfg.server_url), JARVIS_DEFAULT_SERVER);
+    load_str(h, "ota_url", s_cfg.ota_url, sizeof(s_cfg.ota_url), JARVIS_DEFAULT_OTA_URL);
     load_str(h, "conversation", s_cfg.conversation, sizeof(s_cfg.conversation), JARVIS_DEFAULT_CONVERSATION);
     int32_t vol = 75;
     if (nvs_get_i32(h, "volume", &vol) != ESP_OK) {
@@ -50,6 +52,7 @@ esp_err_t jarvis_settings_init(void)
 
     ESP_LOGI(TAG, "settings: ssid='%s' server='%s' conv='%s' vol=%d",
              s_cfg.wifi_ssid, s_cfg.server_url, s_cfg.conversation, s_cfg.volume);
+    ESP_LOGI(TAG, "settings: ota_url='%s'", s_cfg.ota_url);
     return ESP_OK;
 }
 
@@ -71,6 +74,7 @@ esp_err_t jarvis_settings_save(const jarvis_settings_t *s)
     nvs_set_str(h, "wifi_ssid", s->wifi_ssid);
     nvs_set_str(h, "wifi_pass", s->wifi_pass);
     nvs_set_str(h, "server_url", s->server_url);
+    nvs_set_str(h, "ota_url", s->ota_url);
     nvs_set_str(h, "conversation", s->conversation);
     nvs_set_i32(h, "volume", s->volume);
     err = nvs_commit(h);
@@ -97,6 +101,15 @@ esp_err_t jarvis_settings_set_server(const char *url, const char *conversation)
     }
     if (conversation) {
         strlcpy(s.conversation, conversation, sizeof(s.conversation));
+    }
+    return jarvis_settings_save(&s);
+}
+
+esp_err_t jarvis_settings_set_ota_url(const char *url)
+{
+    jarvis_settings_t s = s_cfg;
+    if (url) {
+        strlcpy(s.ota_url, url, sizeof(s.ota_url));
     }
     return jarvis_settings_save(&s);
 }

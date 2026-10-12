@@ -2,6 +2,7 @@
 #include "jarvis_config.h"
 #include "jarvis_turn.h"
 #include "jarvis_settings.h"
+#include "jarvis_ota.h"
 #include "jarvis_ws.h"
 #include "bsp_guition.h"
 
@@ -40,7 +41,7 @@ static void touch_task(void *arg)
 static void console_task(void *arg)
 {
     (void)arg;
-    ESP_LOGI(TAG, "console: l=listen s=stop x=abort a=allow d=deny +=vol -=vol");
+    ESP_LOGI(TAG, "console: l=listen s=stop x=abort a=allow d=deny r=reconnect u=update +=vol -=vol");
     while (true) {
         int ch = fgetc(stdin);
         if (ch == EOF) {
@@ -54,6 +55,12 @@ static void console_task(void *arg)
         case 'a': jarvis_turn_approval(true);     break;
         case 'd': jarvis_turn_approval(false);    break;
         case 'r': jarvis_ws_start(jarvis_settings()->server_url); break;
+        case 'u':
+            ESP_LOGI(TAG, "checking for firmware updates...");
+            if (!jarvis_ota_check_async()) {
+                ESP_LOGW(TAG, "update check unavailable (busy?)");
+            }
+            break;
         case '+': {
             const jarvis_settings_t *c = jarvis_settings();
             jarvis_settings_set_volume(c->volume + 5);

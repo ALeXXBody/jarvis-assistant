@@ -10,6 +10,7 @@ idf_component_register(
         "jarvis_ui.c"
         "jarvis_wifi.c"
         "jarvis_wake.c"
+        "jarvis_ota.c"
     INCLUDE_DIRS
         "."
     REQUIRES
@@ -27,6 +28,11 @@ idf_component_register(
         esp_adc
         esp_lcd
         json
+        esp_https_ota
+        esp_http_client
+        app_update
+        esp_app_format
+        mbedtls
         bsp_guition
         espressif__esp_websocket_client
 )

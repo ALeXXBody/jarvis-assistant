@@ -47,6 +47,17 @@ CONFIG_WS_TRANSPORT=y
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 CONFIG_LOG_MAXIMUM_LEVEL_DEBUG=y
 
+# --- OTA (over-the-air updates) ---
+# Dual-slot updates with rollback: a freshly flashed image boots in "pending
+# verify" and the bootloader reverts it unless the app confirms itself healthy
+# (jarvis_ota_mark_valid() in main.c). See src/jarvis_ota.c.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+# Releases are served over HTTPS (GitHub); trust the bundled CA roots.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+# Allow plain http:// too, so a self-hosted mirror on the LAN works.
+CONFIG_OTA_ALLOW_HTTP=y
+
 # --- ESP-Hosted (ESP32-C6 Wi-Fi over SDIO) ---
 # Wi-Fi on this board ONLY exists via the on-board ESP32-C6 + ESP-Hosted.
 # Enable the block below once the C6 slave firmware + ESP-Hosted component are

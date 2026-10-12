@@ -8,6 +8,15 @@
 /* --- Identity ----------------------------------------------------------- */
 #define JARVIS_DEVICE_ID        "jarvis-panel"
 
+/* --- Firmware version --------------------------------------------------- */
+/* Compared against the release's version.txt by the OTA updater (jarvis_ota.c).
+ * Stamp a release at build time, e.g.
+ *   PLATFORMIO_BUILD_FLAGS='-D JARVIS_FW_VERSION="0.2.0"' pio run -e jarvis-panel
+ * (tools/release.sh does this for you). */
+#ifndef JARVIS_FW_VERSION
+#define JARVIS_FW_VERSION       "0.1.0"
+#endif
+
 /* --- JARVIS brain (the LXC bridge) -------------------------------------- */
 /* Plain ws:// to the jarvis_ai voice bridge (no TLS configured server-side).
  *
@@ -57,6 +66,22 @@
 /* v1 trigger = tap the orb / serial console. ESP-SR WakeNet hooks live in
  * jarvis_wake.c behind JARVIS_ENABLE_WAKENET (needs a flashed model). */
 #define JARVIS_TAP_DEBOUNCE_MS  350
+
+/* --- OTA (over-the-air firmware updates) -------------------------------- */
+/* Base URL of the release that publishes `version.txt` + `firmware.bin`; the
+ * updater appends those two names, so this must point at a directory. Defaults
+ * to this project's GitHub "latest release". Downloading release assets works
+ * unauthenticated once the repo is public; a private repo needs a custom URL or
+ * a token. Set to "" to disable updating entirely.
+ *
+ * Override for a self-hosted mirror, e.g.
+ *   PLATFORMIO_BUILD_FLAGS='-D JARVIS_DEFAULT_OTA_URL="http://192.0.2.60:8000/fw/"' */
+#ifndef JARVIS_DEFAULT_OTA_URL
+#define JARVIS_DEFAULT_OTA_URL \
+    "https://github.com/ALeXXBody/jarvis-assistant/releases/latest/download/"
+#endif
+#define JARVIS_OTA_HTTP_TIMEOUT_MS  20000
+#define JARVIS_OTA_USER_AGENT       "jarvis-panel-ota/1.0"
 
 /* --- Feature gates ------------------------------------------------------ */
 /* Set by sdkconfig once ESP-Hosted (ESP32-C6) is wired up. */
