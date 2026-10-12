@@ -2,22 +2,29 @@
  * GSL3680 capacitive touch controller (I2C 0x40) on the GUITION JC8012P4A1C.
  *
  * The GSL3670/GSL3680 has no usable on-chip touch firmware: after every reset
- * the host must load a firmware blob before the chip reports touches. The
- * register protocol below mirrors the Seeed reTerminal BSP / ESPHome gsl3670
- * component, which explicitly supports this exact board model
- * ("GUITION-JC8012P4A1": reset GPIO22, int GPIO21, addr 0x40).
+ * the host must load a firmware blob before the chip reports touches.
  *
- * Report frame (read from reg 0x80, 44 bytes):
- *   buf[0]        finger count (0..n)
- *   per finger j: base = (j+1)*4
- *     raw_y = (buf[base+1] << 8) | buf[base+0]
- *     raw_x = ((buf[base+3] & 0x0f) << 8) | buf[base+2]
- *     id    =  buf[base+3] >> 4
+ * The bring-up sequence below mirrors the VENDOR driver for this exact board
+ * (JC8012P4A1C_I_W_Y NewPanel example, esp_lcd_gsl3680.c), including:
+ *   - the INT pin driven LOW across the first reset (pin-latch phase),
+ *   - the merged chip/scan engine register bounces with THEIR delays,
+ *   - the firmware write + the 0xB0 == 5A5A5A5A verify with retries.
+ *
+ * The register protocol follows the vendor flow:
+ *
+ *   vendor_clear_reg(): 0xe0=0x88 | 0x88=0x01 | 0xe4=0x04 | 0xe0=0x00
+ *   vendor_reset():     GPIO RST low 20 ms, high 20 ms, then
+ *                       0xe0=0x88 | 0xe4=0x04 | 0xbc=00 00 00 00
+ *   load fw             (our blob, 132-byte blocks — engine remains armed
+ *                        using the same blob that worked on v0.1.3)
+ *   startup:            0xe0=0x00
+ *   verify:             read 0xb0 == 5a 5a 5a 5a (worried → full retry)
+ *
+ * Report frame (read from reg 0x80, 44 bytes): fingers same mapping as the
+ * vendor read (touch_data[0] = finger count, first finger at offset 4).
  *
  * Raw -> panel mapping for this model (ESPHome): swap_xy, mirror_x,
- * mirror_y=false, raw x/y spans 20..880 / 20..1648. Only "pressed" is used by
- * the v1 UI (a tap anywhere triggers a turn); the scaled coordinates are best
- * effort — verify orientation on hardware.
+ * mirror_y=false, raw x/y spans 20..880 / 20..1648.
  */
 #include "bsp_guition.h"
 
@@ -47,8 +54,10 @@ extern const size_t  gsl3680_fw_blocks;
 
 static i2c_master_dev_handle_t s_dev;
 
-/* Diagnostic counters (console `touch` command / memory aid). */
+/* Diagnostic counters (console `touch` command). */
 static uint32_t s_taps, s_no_touch, s_i2c_err;
+static int      s_boot_attempts;      /* bring-up retries for the diag   */
+static bool     s_boot_verified;      /* last 0xb0 == 5A x4 result       */
 
 static esp_err_t gsl_write(uint8_t reg, const uint8_t *data, size_t len)
 {
@@ -68,46 +77,84 @@ static esp_err_t gsl_write8(uint8_t reg, uint8_t val)
     return gsl_write(reg, &val, 1);
 }
 
-static void gsl_hw_reset(void)
+static esp_err_t gsl_read(uint8_t reg, uint8_t *data, size_t len)
 {
-    gpio_set_level(BSP_TOUCH_RST_GPIO, 0);
-    vTaskDelay(pdMS_TO_TICKS(1));
-    gpio_set_level(BSP_TOUCH_RST_GPIO, 1);
+    return i2c_master_transmit_receive(s_dev, &reg, 1, data, len, 100);
+}
+
+/* ---- vendor bring-up steps (esp_lcd_gsl3680.c parity) -------------------- */
+
+/* Vendor clear_reg — note 0xe0=0x88 FIRST (this is what our previous
+ * build missed: only 0x88=0x01 had been written). */
+static esp_err_t v_clear_reg(void)
+{
+    ESP_RETURN_ON_ERROR(gsl_write8(0xe0, 0x88), TAG, "e0=88");
+    vTaskDelay(pdMS_TO_TICKS(20));
+    ESP_RETURN_ON_ERROR(gsl_write8(0x88, 0x01), TAG, "88=01");
     vTaskDelay(pdMS_TO_TICKS(5));
-}
-
-static esp_err_t gsl_clear_reg(void)
-{
-    gsl_hw_reset();
-    ESP_RETURN_ON_ERROR(gsl_write8(0x88, 0x01), TAG, "w 0x88");
-    ESP_RETURN_ON_ERROR(gsl_write8(0xe4, 0x04), TAG, "w 0xe4");
-    return gsl_write8(0xe0, 0x00);
-}
-
-static esp_err_t gsl_reset(void)
-{
-    gsl_hw_reset();
-    ESP_RETURN_ON_ERROR(gsl_write8(0xe4, 0x04), TAG, "w 0xe4");
-    uint8_t zeros[4] = { 0, 0, 0, 0 };
-    return gsl_write(0xbc, zeros, sizeof(zeros));
-}
-
-static esp_err_t gsl_startup(void)
-{
-    ESP_RETURN_ON_ERROR(gsl_write8(0xe0, 0x00), TAG, "w 0xe0");
+    ESP_RETURN_ON_ERROR(gsl_write8(0xe4, 0x04), TAG, "e4=04");
     vTaskDelay(pdMS_TO_TICKS(5));
+    ESP_RETURN_ON_ERROR(gsl_write8(0xe0, 0x00), TAG, "e0=00");
+    vTaskDelay(pdMS_TO_TICKS(20));
     return ESP_OK;
 }
 
-static esp_err_t gsl_load_fw(void)
+/* Vendor reset — LONG GPIO pulses (20 ms) + the three register writes. */
+static esp_err_t v_reset(void)
 {
-    ESP_LOGI(TAG, "loading GSL3680 firmware (%u blocks)", (unsigned)gsl3680_fw_blocks);
+    gpio_set_level(BSP_TOUCH_RST_GPIO, 0);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    gpio_set_level(BSP_TOUCH_RST_GPIO, 1);
+    vTaskDelay(pdMS_TO_TICKS(20));
+
+    ESP_RETURN_ON_ERROR(gsl_write8(0xe0, 0x88), TAG, "e0=88");
+    vTaskDelay(pdMS_TO_TICKS(10));
+    ESP_RETURN_ON_ERROR(gsl_write8(0xe4, 0x04), TAG, "e4=04");
+    vTaskDelay(pdMS_TO_TICKS(10));
+    const uint8_t zeros[4] = { 0, 0, 0, 0 };
+    ESP_RETURN_ON_ERROR(gsl_write(0xbc, zeros, sizeof(zeros)), TAG, "bc");
+    vTaskDelay(pdMS_TO_TICKS(10));
+    return ESP_OK;
+}
+
+static esp_err_t v_load_fw(void)
+{
     for (size_t i = 0; i < gsl3680_fw_blocks; i++) {
         const uint8_t *blk = gsl3680_fw + i * GSL_FW_BLOCK;
         ESP_RETURN_ON_ERROR(gsl_write(0xf0, blk, 1), TAG, "fw addr");
         ESP_RETURN_ON_ERROR(gsl_write(0x00, blk + 4, 128), TAG, "fw data");
     }
     return ESP_OK;
+}
+
+static esp_err_t v_startup(void)
+{
+    ESP_RETURN_ON_ERROR(gsl_write8(0xe0, 0x00), TAG, "e0=00");
+    vTaskDelay(pdMS_TO_TICKS(10));
+    return ESP_OK;
+}
+
+/* Vendor verify: 0xb0 must read back 0x5a 5a 5a 5a after the load. */
+static esp_err_t v_verify(void)
+{
+    uint8_t b[4] = { 0, 0, 0, 0 };
+    ESP_RETURN_ON_ERROR(gsl_read(0xb0, b, sizeof(b)), TAG, "read 0xb0");
+    s_boot_verified = (b[0] == 0x5a && b[1] == 0x5a && b[2] == 0x5a && b[3] == 0x5a);
+    ESP_LOGW(TAG, "0xb0 verify: %02x %02x %02x %02x → %s",
+             b[3], b[2], b[1], b[0], s_boot_verified ? "OK" : "FAILED");
+    return s_boot_verified ? ESP_OK : ESP_FAIL;
+}
+
+static esp_err_t v_bring_up_once(void)
+{
+    ESP_RETURN_ON_ERROR(v_clear_reg(), TAG, "clear_reg");
+    ESP_RETURN_ON_ERROR(v_reset(),     TAG, "reset");
+    ESP_RETURN_ON_ERROR(v_load_fw(),   TAG, "load_fw");
+    ESP_RETURN_ON_ERROR(v_startup(),   TAG, "startup");
+    ESP_RETURN_ON_ERROR(v_reset(),     TAG, "reset2");
+    ESP_RETURN_ON_ERROR(v_startup(),   TAG, "startup2");
+    vTaskDelay(pdMS_TO_TICKS(30));     /* vendor read-delay before verify */
+    return v_verify();
 }
 
 esp_err_t bsp_touch_init(void)
@@ -122,23 +169,48 @@ esp_err_t bsp_touch_init(void)
     ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(bsp_i2c_bus(), &dev_cfg, &s_dev),
                         TAG, "add touch device");
 
-    gpio_config_t rst = {
-        .pin_bit_mask = 1ULL << BSP_TOUCH_RST_GPIO,
+    /* RST + INT outputs; INT held LOW through the reset latch (pin phase
+     * from the vendor driver: address latch + wake-up state).            */
+    gpio_config_t out_cfg = {
+        .pin_bit_mask = (1ULL << BSP_TOUCH_RST_GPIO) | (1ULL << BSP_TOUCH_INT_GPIO),
         .mode = GPIO_MODE_OUTPUT,
     };
-    ESP_RETURN_ON_ERROR(gpio_config(&rst), TAG, "rst gpio");
+    ESP_RETURN_ON_ERROR(gpio_config(&out_cfg), TAG, "rst/int gpio");
+
+    gpio_set_level(BSP_TOUCH_INT_GPIO, 0);
+    gpio_set_level(BSP_TOUCH_RST_GPIO, 0);
+    vTaskDelay(pdMS_TO_TICKS(10));
     gpio_set_level(BSP_TOUCH_RST_GPIO, 1);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    vTaskDelay(pdMS_TO_TICKS(50));
 
-    ESP_RETURN_ON_ERROR(gsl_clear_reg(), TAG, "clear_reg");
-    ESP_RETURN_ON_ERROR(gsl_reset(), TAG, "reset");
-    ESP_RETURN_ON_ERROR(gsl_load_fw(), TAG, "load_fw");
-    ESP_RETURN_ON_ERROR(gsl_startup(), TAG, "startup");
-    ESP_RETURN_ON_ERROR(gsl_reset(), TAG, "reset2");
-    ESP_RETURN_ON_ERROR(gsl_startup(), TAG, "startup2");
+    /* Full vendor bring-up, up to three verified attempts.                */
+    esp_err_t err = ESP_FAIL;
+    for (s_boot_attempts = 1; s_boot_attempts <= 3; s_boot_attempts++) {
+        err = v_bring_up_once();
+        if (err == ESP_OK) {
+            break;
+        }
+        if (s_boot_attempts < 3) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+    }
 
-    ESP_LOGI(TAG, "GSL3680 ready (addr 0x%02x)", BSP_TOUCH_I2C_ADDR);
+    /* INT back to input once the chip is up (kept neutral thereafter).    */
+    gpio_config_t in_cfg = {
+        .pin_bit_mask = 1ULL << BSP_TOUCH_INT_GPIO,
+        .mode = GPIO_MODE_INPUT,
+    };
+    ESP_RETURN_ON_ERROR(gpio_config(&in_cfg), TAG, "int input");
+
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "touch bring-up failed after %d attempts", s_boot_attempts);
+        return ESP_FAIL;
+    }
     return ESP_OK;
 }
+
+/* ---- touch reads ---------------------------------------------------------- */
 
 bool bsp_touch_read(bsp_touch_point_t *pt)
 {
@@ -188,9 +260,9 @@ bool bsp_touch_read(bsp_touch_point_t *pt)
     return true;
 }
 
-/* On-demand probe from the serial console (`touch` command): facts only —
- * what the read path has seen so far, plus one raw capture of the GSL
- * data window right now. */
+/* On-demand probe from the serial console (`touch` command): counters plus
+ * a raw 44-byte data capture, plus the current 0xf0 and 0xb0 windows so a
+ * stuck chip shows up as data instead of silence.                   */
 void bsp_touch_diag(void)
 {
     if (!s_dev) {
@@ -199,11 +271,16 @@ void bsp_touch_diag(void)
     }
     uint8_t reg = GSL_REG_DATA;
     uint8_t buf[GSL_DATA_LEN];
-    esp_err_t e = i2c_master_transmit_receive(s_dev, &reg, 1, buf,
-                                              sizeof(buf), 100);
-    ESP_LOGW(TAG, "diag: read=%s taps=%u no_touch=%u i2c_err=%u",
-             esp_err_to_name(e), s_taps, s_no_touch, s_i2c_err);
+    esp_err_t e = gsl_read(reg, buf, sizeof(buf));
+    ESP_LOGW(TAG, "diag: read=%s taps=%u no_touch=%u i2c_err=%u "
+                  "boot tries=%d 0xb0=%s",
+             esp_err_to_name(e), s_taps, s_no_touch, s_i2c_err,
+             s_boot_attempts, s_boot_verified ? "5a-ok" : "not-ok");
     if (e == ESP_OK) {
         ESP_LOG_BUFFER_HEX_LEVEL(TAG, buf, sizeof(buf), ESP_LOG_WARN);
+    }
+    uint8_t f0[4] = { 0, 0, 0, 0 };
+    if (gsl_read(0xf0, f0, sizeof(f0)) == ESP_OK) {
+        ESP_LOGW(TAG, "0xf0 ping: %02x %02x %02x %02x", f0[0], f0[1], f0[2], f0[3]);
     }
 }
