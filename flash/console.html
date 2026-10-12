@@ -255,7 +255,9 @@ el.copy.addEventListener("click", async () => {
 /* ---- send ---- */
 async function send(s) {
   if (!writer) { setStatus("not connected"); return; }
-  await writer.write(new TextEncoder().encode(s));
+  /* terminate every send: the firmware console executes on newline or a
+   * 600 ms input timeout; appending one keeps single-key compat too. */
+  await writer.write(new TextEncoder().encode(s + "\n"));
 }
 el.sendBtn.addEventListener("click", () => { const v = el.send.value; el.send.value = ""; if (v) send(v); });
 el.send.addEventListener("keydown", e => {

@@ -187,22 +187,36 @@ static void console_task(void *arg)
     (void)arg;
     char line[160];
     size_t n = 0;
+    TickType_t last_rx = 0;
 
     ESP_LOGI(TAG, "console ready — type 'help' for commands");
     while (true) {
         int ch = fgetc(stdin);
         if (ch == EOF) {
+            /* flush a pending line if input went silent (senders that do
+             * not terminate with a newline, e.g. the browser send box) */
+            if (n && last_rx &&
+                (xTaskGetTickCount() - last_rx) > pdMS_TO_TICKS(600)) {
+                line[n] = '\0';
+                ESP_LOGI(TAG, "cmd: %s", line);
+                console_exec(line);
+                n = 0;
+                last_rx = 0;
+            }
             vTaskDelay(pdMS_TO_TICKS(20));
             continue;
         }
+        last_rx = xTaskGetTickCount();
         if (ch == '\r') {
             continue;
         }
         if (ch == '\n' || ch == ']') {   /* ] = Enter on some serial bridges */
             if (n > 0) {
                 line[n] = '\0';
+                ESP_LOGI(TAG, "cmd: %s", line);
                 console_exec(line);
                 n = 0;
+                last_rx = 0;
             }
             continue;
         }
