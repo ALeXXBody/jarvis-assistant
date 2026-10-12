@@ -19,6 +19,7 @@ static char   s_rx[JARVIS_WS_RX_BUF];
 static size_t s_rx_len;
 static char   s_run_id[64];
 static char   s_approval_id[64];
+static TickType_t     s_last_retry_log = 0;   /* tick since boot (rate-limit) */
 
 /* ------------------------------------------------------------------------- */
 /* helpers                                                                   */
@@ -187,11 +188,16 @@ static void ws_event(void *arg, esp_event_base_t base, int32_t id, void *data)
         break;
 
     case WEBSOCKET_EVENT_DISCONNECTED:
-        ESP_LOGW(TAG, "disconnected");
         jarvis_state_conn(jarvis_wifi_connected(), false);
         jarvis_state_status("Link lost - reconnecting...");
         jarvis_turn_reset();
         s_rx_len = 0;
+        /* One WARNING per minute instead of per retry: the esp-websocket
+         * client retries every ~3 s and the identical lines flood the log. */
+        if ((xTaskGetTickCount() - s_last_retry_log) > pdMS_TO_TICKS(60000)) {
+            s_last_retry_log = xTaskGetTickCount();
+            ESP_LOGW(TAG, "disconnected (reconnecting)");
+        }
         break;
 
     case WEBSOCKET_EVENT_DATA: {
@@ -227,7 +233,11 @@ static void ws_event(void *arg, esp_event_base_t base, int32_t id, void *data)
     }
 
     case WEBSOCKET_EVENT_ERROR:
-        ESP_LOGE(TAG, "transport error (type %d)", ev ? ev->error_handle.error_type : -1);
+        if ((xTaskGetTickCount() - s_last_retry_log) > pdMS_TO_TICKS(60000)) {
+            s_last_retry_log = xTaskGetTickCount();
+            ESP_LOGE(TAG, "transport error (type %d)",
+                     ev ? ev->error_handle.error_type : -1);
+        }
         break;
 
     default:
