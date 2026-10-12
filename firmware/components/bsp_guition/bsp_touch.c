@@ -47,6 +47,9 @@ extern const size_t  gsl3680_fw_blocks;
 
 static i2c_master_dev_handle_t s_dev;
 
+/* Diagnostic counters (console `touch` command / memory aid). */
+static uint32_t s_taps, s_no_touch, s_i2c_err;
+
 static esp_err_t gsl_write(uint8_t reg, const uint8_t *data, size_t len)
 {
     uint8_t buf[1 + GSL_FW_BLOCK];
@@ -146,14 +149,17 @@ bool bsp_touch_read(bsp_touch_point_t *pt)
     uint8_t reg = GSL_REG_DATA;
     uint8_t buf[GSL_DATA_LEN];
     if (i2c_master_transmit_receive(s_dev, &reg, 1, buf, sizeof(buf), 100) != ESP_OK) {
+        s_i2c_err++;
         return false;
     }
 
     uint8_t fingers = buf[0] > GSL_MAX_FINGERS ? GSL_MAX_FINGERS : buf[0];
     if (fingers == 0) {
         pt->pressed = false;
+        s_no_touch++;
         return false;
     }
+    s_taps++;
 
     /* Finger 0: base = 4. */
     uint16_t raw_x = (uint16_t)(((buf[7] & 0x0f) << 8) | buf[6]);
@@ -180,4 +186,24 @@ bool bsp_touch_read(bsp_touch_point_t *pt)
     pt->y = (uint16_t)dy;
     pt->pressed = true;
     return true;
+}
+
+/* On-demand probe from the serial console (`touch` command): facts only —
+ * what the read path has seen so far, plus one raw capture of the GSL
+ * data window right now. */
+void bsp_touch_diag(void)
+{
+    if (!s_dev) {
+        ESP_LOGW(TAG, "diag: touch device not initialised");
+        return;
+    }
+    uint8_t reg = GSL_REG_DATA;
+    uint8_t buf[GSL_DATA_LEN];
+    esp_err_t e = i2c_master_transmit_receive(s_dev, &reg, 1, buf,
+                                              sizeof(buf), 100);
+    ESP_LOGW(TAG, "diag: read=%s taps=%u no_touch=%u i2c_err=%u",
+             esp_err_to_name(e), s_taps, s_no_touch, s_i2c_err);
+    if (e == ESP_OK) {
+        ESP_LOG_BUFFER_HEX_LEVEL(TAG, buf, sizeof(buf), ESP_LOG_WARN);
+    }
 }

@@ -157,6 +157,11 @@ static void console_exec(char *line)
         return;
     }
 
+    if (!strcmp(cmd, "touch")) {
+        bsp_touch_diag();
+        return;
+    }
+
     if (!strcmp(cmd, "cfg")) {
         cfg_show();
         return;
@@ -170,7 +175,7 @@ static void console_exec(char *line)
     if (!strcmp(cmd, "help")) {
         ESP_LOGI(TAG, "console: l/s/x/a/d = turn ctrl | r reconnect | u update"
                       " | +/- vol | w <ssid> <pass> | srv <url> [conv]"
-                      " | cfg | state");
+                      " | cfg | state | touch | help");
         return;
     }
 

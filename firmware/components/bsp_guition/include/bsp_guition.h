@@ -77,6 +77,8 @@ typedef struct {
 esp_err_t bsp_touch_init(void);
 /* Returns true and fills |pt| when a finger is present. */
 bool      bsp_touch_read(bsp_touch_point_t *pt);
+/* Serial-console probe: touch counters + one raw GSL data capture. */
+void      bsp_touch_diag(void);
 
 /* ------------------------------------------------------------------------- */
 /* Audio (ES8311)                                                            */
