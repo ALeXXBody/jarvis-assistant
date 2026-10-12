@@ -405,7 +405,7 @@ Full bring-up checklist + fault table: [`firmware/docs/BRINGUP.md`](firmware/doc
   `PLATFORMIO_BUILD_FLAGS` environment variable:
 
   ```sh
-  PLATFORMIO_BUILD_FLAGS='-D JARVIS_DEFAULT_SERVER="ws://192.0.2.60:8765/ws"' \
+  PLATFORMIO_BUILD_FLAGS='-D JARVIS_DEFAULT_SERVER="ws://192.0.2.10:8765/ws"' \
       pio run -e jarvis-panel -t upload
   ```
 
@@ -418,7 +418,7 @@ Full bring-up checklist + fault table: [`firmware/docs/BRINGUP.md`](firmware/doc
   mirror or self-hosted server, or set it to `""` to disable updating:
 
   ```sh
-  PLATFORMIO_BUILD_FLAGS='-D JARVIS_DEFAULT_OTA_URL="http://192.0.2.60:8000/fw/"' \
+  PLATFORMIO_BUILD_FLAGS='-D JARVIS_DEFAULT_OTA_URL="http://192.0.2.10:8000/fw/"' \
       pio run -e jarvis-panel
   ```
 

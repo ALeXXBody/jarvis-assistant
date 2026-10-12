@@ -23,7 +23,7 @@
  * The value below is an RFC-5737 documentation address (a placeholder, NOT a
  * real host). Point it at your own bridge without committing your private IP:
  *   - build time:  override via the PLATFORMIO_BUILD_FLAGS env var, e.g.
- *                    PLATFORMIO_BUILD_FLAGS='-D JARVIS_DEFAULT_SERVER="ws://192.0.2.60:8765/ws"'
+ *                    PLATFORMIO_BUILD_FLAGS='-D JARVIS_DEFAULT_SERVER="ws://192.0.2.10:8765/ws"'
  *   - or edit this line locally and simply don't commit it.
  */
 #ifndef JARVIS_DEFAULT_SERVER
@@ -75,7 +75,7 @@
  * a token. Set to "" to disable updating entirely.
  *
  * Override for a self-hosted mirror, e.g.
- *   PLATFORMIO_BUILD_FLAGS='-D JARVIS_DEFAULT_OTA_URL="http://192.0.2.60:8000/fw/"' */
+ *   PLATFORMIO_BUILD_FLAGS='-D JARVIS_DEFAULT_OTA_URL="http://192.0.2.10:8000/fw/"' */
 #ifndef JARVIS_DEFAULT_OTA_URL
 #define JARVIS_DEFAULT_OTA_URL \
     "https://github.com/ALeXXBody/jarvis-assistant/releases/latest/download/"
