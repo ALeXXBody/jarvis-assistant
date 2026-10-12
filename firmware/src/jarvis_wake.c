@@ -32,6 +32,7 @@ static void touch_task(void *arg)
         if (now && !was && (t - last) > pdMS_TO_TICKS(JARVIS_TAP_DEBOUNCE_MS)) {
             last = t;
             ESP_LOGI(TAG, "tap at %u,%u", pt.x, pt.y);
+            jarvis_state_touch_pulse();
             jarvis_turn_toggle();
         }
         was = now;

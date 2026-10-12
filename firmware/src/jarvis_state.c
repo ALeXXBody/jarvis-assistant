@@ -156,3 +156,10 @@ void jarvis_state_push_line(const char *line)
     strlcpy(s_snap.lines[JVS_LINES - 1], line, JVS_LINE_MAX);
     unlock();
 }
+
+void jarvis_state_touch_pulse(void)
+{
+    lock();
+    s_snap.tap_ticks = xTaskGetTickCount();
+    unlock();
+}

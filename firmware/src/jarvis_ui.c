@@ -44,8 +44,7 @@ static const char *TAG = "ui";
  * spacing, thin hairlines. Nothing cartoonish.                                    */
 #define RGB565(r, g, b) ((uint16_t)((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3)))
 
-#define C_BG_TOP     RGB565(7, 9, 14)      /* #07090F */
-#define C_BG_BOT     RGB565(10, 13, 21)    /* #0A0D15 */
+#define C_BG         RGB565(9, 10, 12)     /* neutral near-black */
 #define C_HAIR       RGB565(23, 29, 40)    /* hairlines */
 #define C_TEXT_DIM   RGB565(104, 116, 133)
 #define C_TEXT       RGB565(184, 192, 204)
@@ -284,45 +283,6 @@ static void ring_aa(uint16_t *fb, int cx, int cy, float Ri, float Ro,
     }
 }
 
-/* Very soft radial glow behind the reactor: LUT of alpha per radius band,
- * then one blend per pixel (no sqrt in the inner loop).                      */
-#define GLOW_N 100
-
-static void draw_glow(uint16_t *fb, int cx, int cy, float R, uint16_t c,
-                      float intensity)
-{
-    uint8_t al[GLOW_N];
-    for (int i = 0; i < GLOW_N; i++) {
-        float nd = (float)i / (float)(GLOW_N - 1);
-        al[i] = (uint8_t)(expf(-nd * nd * 5.0f) * intensity * 255.0f);
-    }
-
-    int i0 = cx - (int)R, i1 = cx + (int)R;
-    int j0 = cy - (int)R, j1 = cy + (int)R;
-    if (i0 < 0) i0 = 0;
-    if (j0 < 0) j0 = 0;
-    if (i1 > SCR_W) i1 = SCR_W;
-    if (j1 > SCR_H) j1 = SCR_H;
-
-    int iscale = (int)(R * R);
-    for (int y = j0; y < j1; y++) {
-        int dy = y - cy;
-        int dy2 = dy * dy;
-        uint32_t rowbase = (uint32_t)y * SCR_W;
-        for (int x = i0; x < i1; x++) {
-            int dx = x - cx;
-            int d2 = dx * dx + dy2;
-            int di = (d2 >= iscale) ? GLOW_N - 1
-                                    : (d2 * (GLOW_N - 1)) / iscale;
-            if (al[di] > 5) {
-                uint32_t p = rowbase + (uint32_t)x;
-                uint16_t bg = (y < cy) ? C_BG_TOP : C_BG_BOT;
-                fb[p] = (al[di] >= 250) ? c : mix565(bg, c, al[di]);
-            }
-        }
-    }
-}
-
 /* Tick marks radiating r0..r1, n around the circle; every 5th is long. */
 static void draw_ticks(uint16_t *fb, int cx, int cy, float r0, float r1,
                        int n, uint16_t c, int alpha)
@@ -412,19 +372,19 @@ static void draw_top_bar(uint16_t *fb, const jarvis_snapshot_t *s)
 
 static void draw_bottom_bar(uint16_t *fb, const jarvis_snapshot_t *s)
 {
-    fill_thin(fb, 0, 1246, SCR_W, 1247, C_HAIR);
-    draw_text_aa(fb, 32, 1258, JARVIS_FW_VERSION, RGB565(84, 94, 110), 0, 3);
+    fill_thin(fb, 0, 1236, SCR_W, 1237, C_HAIR);
+    draw_text_aa(fb, 32, 1246, JARVIS_FW_VERSION, RGB565(84, 94, 110), 0, 3);
     if (s->last_total_seconds > 0.05f) {
         char lat[40];
         snprintf(lat, sizeof(lat), "TURN  %.1f s", s->last_total_seconds);
         int w = text_w(lat, 0, 3);
-        draw_text_aa(fb, SCR_W - 32 - w, 1258, lat, RGB565(84, 94, 110), 0, 3);
+        draw_text_aa(fb, SCR_W - 32 - w, 1246, lat, RGB565(84, 94, 110), 0, 3);
     }
 }
 
 static void draw_approval(uint16_t *fb, float t)
 {
-    int x0 = 100, x1 = 700, y0 = 1130, y1 = 1230;
+    int x0 = 100, x1 = 700, y0 = 1124, y1 = 1224;
     uint16_t amber = C_THINK;
     fill_rect(fb, x0, y0, x1, y0 + 2, amber);
     fill_rect(fb, x0, y1 - 2, x1, y1, amber);
@@ -534,7 +494,7 @@ static void draw_wave_ring(uint16_t *fb, int cx, int cy, float base,
         int i0 = i % WAVE_N;
         int i1 = (i0 + 1) % WAVE_N;
         float rem = pos - floorf(pos);
-        float r = base + (amp[i0] * (1.0f - rem) + amp[i1] * rem) * 150.0f;
+        float r = base + (amp[i0] * (1.0f - rem) + amp[i1] * rem) * 55.0f;
         px_a(fb, cx + (int)(cosf(a) * r), cy + (int)(sinf(a) * r), c, alpha);
     }
 }
@@ -559,28 +519,26 @@ static void ui_task(void *arg)
             state_style_t st;
             style_for(snap.state, &st);
 
-            /* background: quiet vertical gradient */
-            for (int y = 0; y < SCR_H; y++) {
-                int f = (y * 255) / SCR_H;
-                int r = (7  + (10 - 7)  * f) / 255;
-                int g = (9  + (13 - 9)  * f) / 255;
-                int b = (14 + (21 - 14) * f) / 255;
-                uint16_t c = (uint16_t)((r << 11) | (g << 5) | b);
-                uint16_t *row = fb + (uint32_t)y * SCR_W;
-                for (int x = 0; x < SCR_W; x++) {
-                    row[x] = c;
+            /* background: one flat neutral colour (no banding) */
+            fill_rect(fb, 0, 0, SCR_W, SCR_H, C_BG);
+
+            /* tap ripple: expanding ring for ~0.7 s after a touch */
+            {
+                TickType_t now_t = xTaskGetTickCount();
+                int age_ms = (int)((now_t - snap.tap_ticks) * portTICK_PERIOD_MS);
+                if (age_ms >= 0 && age_ms < 700 && (snap.tap_ticks != 0)) {
+                    float rr = R + (float)age_ms * 0.22f;
+                    int ra = (int)(210 * (1.0f - (float)age_ms / 700.0f));
+                    ring_aa(fb, cx, cy, rr - 4.0f, rr + 2.0f, st.accent, ra);
                 }
             }
 
             /* reactor */
-            float breath = 1.0f + 0.010f * sinf(t * 2.0f);
-            draw_glow(fb, cx, cy, R * 1.34f * breath, st.glowc, st.glow_i);
-
             ring_aa(fb, cx, cy, R - 1.2f, R + 1.2f, st.accent, 115);
             ring_aa(fb, cx, cy, R * 0.82f - 0.6f, R * 0.82f + 0.6f, st.accent, 55);
             ring_aa(fb, cx, cy, R * 0.40f - 0.5f, R * 0.40f + 0.5f, st.accent, 38);
 
-            draw_ticks(fb, cx, cy, R * 1.07f, R * 1.17f, 60, st.accent, 150);
+            draw_ticks(fb, cx, cy, R * 1.07f, R * 1.14f, 24, st.accent, 130);
 
             switch (snap.state) {
             case JVS_LISTENING: {

@@ -8,6 +8,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include "freertos/FreeRTOS.h"
 
 typedef enum {
     JVS_BOOTING = 0,
@@ -34,6 +35,7 @@ typedef struct {
     float last_total_seconds;     /* latency of last turn (done.timing) */
     int   battery_pct;            /* -1 = unknown                       */
     char  lines[JVS_LINES][JVS_LINE_MAX];  /* rolling display lines     */
+    TickType_t tap_ticks;         /* freshly stamped when a tap lands   */
 } jarvis_snapshot_t;
 
 void jarvis_state_init(void);
@@ -60,3 +62,6 @@ void jarvis_state_set_battery(int pct);
 
 /* Appends a line to the rolling on-screen transcript (oldest scrolls off). */
 void jarvis_state_push_line(const char *line);
+
+/* Wake/touch task: stamp "a tap just landed" — the UI draws a ripple. */
+void jarvis_state_touch_pulse(void);
