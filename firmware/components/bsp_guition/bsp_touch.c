@@ -37,9 +37,19 @@
 
 static const char *TAG = "bsp_touch";
 
-/* Firmware blob: components/bsp_guition/gsl3680_fw.c */
+/* Firmware blob (legacy block format, kept for reference):
+ * components/bsp_guition/gsl3680_fw.c — the vendor-record loader below
+ * supersedes it. */
 extern const uint8_t gsl3680_fw[];
 extern const size_t  gsl3680_fw_blocks;
+
+/* Vendor firmware records, verbatim from the board's own example driver
+ * (esp_lcd_gsl3680.h): {register offset, 32-bit LE value}. */
+extern const struct gsl_fw_rec {
+    uint8_t off;
+    uint32_t val;
+} gsl_vfw[];
+#define GSL_VFW_CNT 4587
 
 #define GSL_FW_BLOCK       132           /* 4 header + 128 data bytes */
 #define GSL_REG_DATA       0x80
@@ -117,12 +127,24 @@ static esp_err_t v_reset(void)
     return ESP_OK;
 }
 
+/* Verbatim vendor load: one I2C write per record, exactly as the vendor
+ * driver does (1 byte for the 0xf0 marker, 4-byte LE elsewhere). */
 static esp_err_t v_load_fw(void)
 {
-    for (size_t i = 0; i < gsl3680_fw_blocks; i++) {
-        const uint8_t *blk = gsl3680_fw + i * GSL_FW_BLOCK;
-        ESP_RETURN_ON_ERROR(gsl_write(0xf0, blk, 1), TAG, "fw addr");
-        ESP_RETURN_ON_ERROR(gsl_write(0x00, blk + 4, 128), TAG, "fw data");
+    for (size_t i = 0; i < GSL_VFW_CNT; i++) {
+        const uint8_t off = gsl_vfw[i].off;
+        if (off == 0xf0) {
+            uint8_t v = (uint8_t)(gsl_vfw[i].val & 0xff);
+            ESP_RETURN_ON_ERROR(gsl_write(off, &v, 1), TAG, "fw rec %u", i);
+        } else {
+            uint8_t w[4] = {
+                (uint8_t)(gsl_vfw[i].val & 0xff),
+                (uint8_t)((gsl_vfw[i].val >> 8) & 0xff),
+                (uint8_t)((gsl_vfw[i].val >> 16) & 0xff),
+                (uint8_t)((gsl_vfw[i].val >> 24) & 0xff),
+            };
+            ESP_RETURN_ON_ERROR(gsl_write(off, w, 4), TAG, "fw rec %u", i);
+        }
     }
     return ESP_OK;
 }

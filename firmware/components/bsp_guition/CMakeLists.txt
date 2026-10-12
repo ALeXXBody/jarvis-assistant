@@ -10,6 +10,7 @@ set(BSP_SRCS
     "bsp_led.c"
     "bsp_sys.c"
     "gsl3680_fw.c"
+    "gsl3680_vfw.c"
 )
 
 idf_component_register(
