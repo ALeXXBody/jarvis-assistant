@@ -1,0 +1,195 @@
+#include "jarvis_audio.h"
+#include "jarvis_config.h"
+#include "jarvis_settings.h"
+#include "jarvis_state.h"
+#include "jarvis_ws.h"
+#include "bsp_guition.h"
+
+#include <string.h>
+#include <math.h>
+#include "esp_log.h"
+#include "esp_heap_caps.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/stream_buffer.h"
+
+static const char *TAG = "audio";
+
+static TaskHandle_t s_capture_task;
+static TaskHandle_t s_play_task;
+static StreamBufferHandle_t s_play_buf;
+static volatile bool s_capturing;
+static volatile bool s_turn_done;
+static jarvis_audio_silence_cb_t s_silence_cb;
+
+/* ---------------- playback ------------------------------------------------ */
+
+static void play_task(void *arg)
+{
+    (void)arg;
+    static uint8_t chunk[JARVIS_FRAME_BYTES * 4];
+    uint8_t *buf = heap_caps_malloc(JARVIS_FRAME_BYTES * 4, MALLOC_CAP_INTERNAL);
+    if (!buf) {
+        buf = chunk;
+    }
+
+    while (true) {
+        size_t got = xStreamBufferReceive(s_play_buf, buf, JARVIS_FRAME_BYTES * 4,
+                                          pdMS_TO_TICKS(200));
+        if (got > 0) {
+            bsp_audio_play(buf, got, 1000);
+        } else if (s_turn_done) {
+            /* Buffer drained and the server said the turn is finished. */
+            s_turn_done = false;
+            if (jarvis_state_get() == JVS_SPEAKING) {
+                jarvis_state_set(JVS_IDLE);
+            }
+        }
+    }
+}
+
+void jarvis_audio_play_pcm(const uint8_t *pcm, size_t len)
+{
+    if (!s_play_buf || !pcm || len == 0) {
+        return;
+    }
+    /* Never block the WS task: drop if the ring is full (we're behind). */
+    size_t sent = xStreamBufferSend(s_play_buf, pcm, len, 0);
+    if (sent < len) {
+        ESP_LOGW(TAG, "playback ring full, dropped %u bytes", (unsigned)(len - sent));
+    }
+}
+
+void jarvis_audio_mark_done(void)
+{
+    s_turn_done = true;
+}
+
+void jarvis_audio_flush(void)
+{
+    if (s_play_buf) {
+        xStreamBufferReset(s_play_buf);
+    }
+    s_turn_done = false;
+}
+
+/* ---------------- capture ------------------------------------------------- */
+
+static inline int16_t rms_of(const int16_t *s, size_t n)
+{
+    if (n == 0) {
+        return 0;
+    }
+    int64_t acc = 0;
+    for (size_t i = 0; i < n; i++) {
+        acc += (int32_t)s[i] * s[i];
+    }
+    float mean = (float)acc / (float)n;
+    return (int16_t)sqrtf(mean);
+}
+
+static void capture_task(void *arg)
+{
+    (void)arg;
+    static int16_t frame[JARVIS_FRAME_SAMPLES];
+
+    uint32_t silence_ms = 0;
+    uint32_t elapsed_ms = 0;
+    bool speech_seen = false;
+
+    while (true) {
+        if (!s_capturing) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+            continue;
+        }
+
+        int bytes = bsp_audio_record((uint8_t *)frame, sizeof(frame), 100);
+        if (bytes <= 0) {
+            continue;
+        }
+        size_t samples = bytes / 2;
+        uint32_t frame_ms = (uint32_t)((samples * 1000) / JARVIS_SAMPLE_RATE);
+        elapsed_ms += frame_ms;
+
+        /* Stream to the bridge. */
+        jarvis_ws_send_audio((const uint8_t *)frame, (size_t)bytes);
+
+        int rms = rms_of(frame, samples);
+        if (rms >= JARVIS_RMS_SPEECH) {
+            speech_seen = true;
+            silence_ms = 0;
+        } else if (rms < JARVIS_RMS_SILENCE) {
+            silence_ms += frame_ms;
+        }
+
+        bool timeout = elapsed_ms >= JARVIS_MAX_LISTEN_MS;
+        bool end_of_speech = speech_seen &&
+                             silence_ms >= JARVIS_SILENCE_STOP_MS &&
+                             elapsed_ms >= JARVIS_SILENCE_ARM_MS;
+
+        if (timeout || end_of_speech) {
+            ESP_LOGI(TAG, "capture stop (%s, %ums)",
+                     timeout ? "timeout" : "silence", (unsigned)elapsed_ms);
+            s_capturing = false;
+            if (s_silence_cb) {
+                s_silence_cb();
+            }
+            silence_ms = 0;
+            elapsed_ms = 0;
+            speech_seen = false;
+        }
+    }
+}
+
+void jarvis_audio_start_capture(void)
+{
+    s_capturing = true;
+}
+
+void jarvis_audio_stop_capture(void)
+{
+    s_capturing = false;
+}
+
+bool jarvis_audio_capturing(void)
+{
+    return s_capturing;
+}
+
+void jarvis_audio_set_silence_cb(jarvis_audio_silence_cb_t cb)
+{
+    s_silence_cb = cb;
+}
+
+void jarvis_audio_set_volume(int percent)
+{
+    bsp_audio_set_volume(percent);
+}
+
+/* ---------------- init ---------------------------------------------------- */
+
+esp_err_t jarvis_audio_init(void)
+{
+    esp_err_t err = bsp_audio_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "bsp_audio_init failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    const jarvis_settings_t *cfg = jarvis_settings();
+    bsp_audio_set_volume(cfg ? cfg->volume : 75);
+
+    s_play_buf = xStreamBufferCreate(JARVIS_TTS_RING_BYTES, 1);
+    if (!s_play_buf) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    BaseType_t ok = xTaskCreatePinnedToCore(play_task, "jarvis_play", 4096, NULL, 6,
+                                            &s_play_task, 0);
+    if (ok != pdPASS) {
+        return ESP_FAIL;
+    }
+    ok = xTaskCreatePinnedToCore(capture_task, "jarvis_cap", 4096, NULL, 7,
+                                 &s_capture_task, 1);
+    return (ok == pdPASS) ? ESP_OK : ESP_FAIL;
+}

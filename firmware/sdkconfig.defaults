@@ -1,0 +1,56 @@
+# JARVIS satellite — ESP32-P4 sdkconfig defaults (GUITION JC8012P4A1C)
+# Applied by PlatformIO's espidf builder on top of IDF defaults.
+
+# --- Target / boot ---
+CONFIG_IDF_TARGET="esp32p4"
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_360=y
+
+# --- Flash (W25Q128, 16 MB, QIO @ 80 MHz) ---
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+CONFIG_ESPTOOLPY_HEADER_FLASHSIZE_UPDATE=y
+
+# --- Partition table ---
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+# The ESP32-P4 bootloader (~24 KB @ 0x2000) runs past 0x8000, so the table
+# must start at 0x9000; nvs then begins at 0xa000. See partitions.csv.
+CONFIG_PARTITION_TABLE_OFFSET=0x9000
+
+# --- PSRAM (32 MB stacked, 200 MHz, octal/hex mode) ---
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_200M=y
+CONFIG_SPIRAM_TYPE_AUTO=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+
+# --- Console: USB-Serial-JTAG (P4 dev boards) with UART0 fallback ---
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# --- FreeRTOS / system ---
+CONFIG_FREERTOS_HZ=1000
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=4096
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
+
+# --- LWIP / sockets (WebSocket client) ---
+CONFIG_LWIP_MAX_SOCKETS=12
+
+# --- WebSocket client ---
+CONFIG_WS_TRANSPORT=y
+
+# --- Logging ---
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_MAXIMUM_LEVEL_DEBUG=y
+
+# --- ESP-Hosted (ESP32-C6 Wi-Fi over SDIO) ---
+# Wi-Fi on this board ONLY exists via the on-board ESP32-C6 + ESP-Hosted.
+# Enable the block below once the C6 slave firmware + ESP-Hosted component are
+# wired up (see docs/BRINGUP.md). Kept OFF so the base build compiles/tests
+# without the C6.
+# CONFIG_ESP_HOSTED_SDIO_HOST=y
+# CONFIG_ESP_WIFI_REMOTE_ENABLED=y

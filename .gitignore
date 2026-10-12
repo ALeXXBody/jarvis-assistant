@@ -1,0 +1,37 @@
+# --- ESP-IDF / PlatformIO build output ------------------------------------
+# .pio holds the whole build tree (~160 MB) and managed_components holds
+# registry deps that are re-fetched from idf_component.yml + dependencies.lock.
+firmware/.pio/
+firmware/build/
+firmware/managed_components/
+firmware/components/*/build/
+
+# Generated sdkconfig (rebuilt from sdkconfig.defaults on every build)
+firmware/sdkconfig
+firmware/sdkconfig.jarvis-panel
+firmware/sdkconfig.old
+
+# --- Python ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# --- Vendor archive download ----------------------------------------------
+# The vendor SDK/archive shards are large binary blobs (mixed provenance);
+# keep only the fetch script + manifest, never the shards themselves.
+vendor/shards/
+vendor/*.zip
+
+# --- OS / editor ----------------------------------------------------------
+.DS_Store
+*.swp
+*~
+
+# --- Private / local-only -------------------------------------------------
+# Local notes that must never be published (e.g. the real-IP map, or an
+# untracked PlatformIO override that carries your actual host address).
+.private/
+platformio.local.ini

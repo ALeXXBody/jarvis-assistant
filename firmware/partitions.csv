@@ -1,0 +1,16 @@
+# JARVIS satellite partition table — 16 MB flash (W25Q128)
+#
+# ESP32-P4 notes:
+#   * The P4 bootloader is ~24 KB and starts at 0x2000, so it runs past 0x8000.
+#     The partition table therefore lives at 0x9000 (CONFIG_PARTITION_TABLE_OFFSET)
+#     and nvs starts at 0xa000.
+#   * Two OTA slots, no `factory`. PlatformIO picks the app load address from the
+#     `ota_0` subtype first, so ota_0 must be the primary slot at 0x20000.
+#
+# Name,      Type, SubType,  Offset,   Size,     Flags
+nvs,         data, nvs,      0xa000,   0x6000,
+otadata,     data, ota,      0x10000,  0x2000,
+phy_init,    data, phy,      0x12000,  0x1000,
+ota_0,       app,  ota_0,    0x20000,  0x3D0000,
+ota_1,       app,  ota_1,    0x3F0000, 0x3D0000,
+assets,      data, spiffs,   0x7C0000, 0x840000,
