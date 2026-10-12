@@ -405,7 +405,7 @@ Full bring-up checklist + fault table: [`firmware/docs/BRINGUP.md`](firmware/doc
   `PLATFORMIO_BUILD_FLAGS` environment variable:
 
   ```sh
-  PLATFORMIO_BUILD_FLAGS='-D JARVIS_DEFAULT_SERVER="ws://192.0.2.10:8765/ws"' \
+  PLATFORMIO_BUILD_FLAGS='-D JARVIS_DEFAULT_SERVER=\"ws://192.0.2.10:8765/ws\"' \
       pio run -e jarvis-panel -t upload
   ```
 
@@ -418,13 +418,17 @@ Full bring-up checklist + fault table: [`firmware/docs/BRINGUP.md`](firmware/doc
   mirror or self-hosted server, or set it to `""` to disable updating:
 
   ```sh
-  PLATFORMIO_BUILD_FLAGS='-D JARVIS_DEFAULT_OTA_URL="http://192.0.2.10:8000/fw/"' \
+  PLATFORMIO_BUILD_FLAGS='-D JARVIS_DEFAULT_OTA_URL=\"http://192.0.2.10:8000/fw/\"' \
       pio run -e jarvis-panel
   ```
 
   The URL must point at a **directory**; the updater appends `version.txt` and
   `firmware.bin`. The (optional) runtime value lives in NVS and can be changed
   with `jarvis_settings_set_ota_url()`.
+
+  > Keep the `\"…\"` escaping in these examples: PlatformIO parses
+  > `PLATFORMIO_BUILD_FLAGS` with `shlex`, so plain `"…"` quotes are stripped and
+  > the string macro ends up malformed.
 
 * **Wi-Fi** — off by default. Enable ESP-Hosted and set SSID/password per
   [`firmware/docs/BRINGUP.md`](firmware/docs/BRINGUP.md) §5.

@@ -87,7 +87,7 @@ default this repo's GitHub `releases/latest/download/`, which must publish:
   override per build:
 
   ```bash
-  PLATFORMIO_BUILD_FLAGS='-D JARVIS_DEFAULT_OTA_URL="http://192.0.2.10:8000/fw/"' \
+  PLATFORMIO_BUILD_FLAGS='-D JARVIS_DEFAULT_OTA_URL=\"http://192.0.2.10:8000/fw/\"' \
       pio run -e jarvis-panel
   ```
 

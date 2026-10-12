@@ -25,7 +25,10 @@ NOTES="${2:-JARVIS panel firmware $VERSION}"
 REPO="${JARVIS_REPO:-ALeXXBody/jarvis-assistant}"
 
 echo ">> building firmware $VER_NUM"
-PLATFORMIO_BUILD_FLAGS="${PLATFORMIO_BUILD_FLAGS:-} -D JARVIS_FW_VERSION=\"$VER_NUM\"" \
+# PlatformIO parses PLATFORMIO_BUILD_FLAGS with shlex, which strips plain
+# quotes — the inner \" must stay literal so the macro is a *string*, not a
+# number. (${x:-} keeps any flags you already had.)
+PLATFORMIO_BUILD_FLAGS="${PLATFORMIO_BUILD_FLAGS:-} -D JARVIS_FW_VERSION=\\\"$VER_NUM\\\"" \
     pio run -e jarvis-panel
 
 BUILD=.pio/build/jarvis-panel
