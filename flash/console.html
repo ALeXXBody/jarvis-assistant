@@ -42,6 +42,8 @@
   <button id="copy">Copy</button>
   <input id="filter" type="text" placeholder="filter lines (substring)">
   <label><input type="checkbox" id="pause"> pause</label>
+  <input id="srv" type="text" placeholder="log collector  host:port  (e.g. your-server:8766)" style="min-width:16rem">
+  <label><input type="checkbox" id="stream" checked> stream</label>
   <span id="status">not connected</span>
 </header>
 
@@ -74,10 +76,17 @@ const el = {
   copy: document.getElementById("copy"),
   filter: document.getElementById("filter"),
   pause: document.getElementById("pause"),
+  srv: document.getElementById("srv"),
+  stream: document.getElementById("stream"),
   status: document.getElementById("status"),
   send: document.getElementById("send"),
   sendBtn: document.getElementById("sendBtn"),
 };
+
+/* remember the collector endpoint across sessions */
+el.srv.value = localStorage.getItem("jarvisLogSrv") || "";
+el.srv.addEventListener("change", () =>
+  localStorage.setItem("jarvisLogSrv", el.srv.value.trim()));
 
 let port = null, writer = null, running = false;
 let partial = "";          /* bytes split across reads, joined at '\n' */
@@ -95,6 +104,7 @@ el.connect.addEventListener("click", async () => {
     await writer.write(new TextEncoder().encode("\r"));
     readLoop();
     setStatus("connected — panel logs follow");
+    queueForUpload("=== browser attached to panel over Web Serial ===");
   } catch (e) {
     setStatus(e.name === "NotFoundError" ? "no device selected"
                                          : "error: " + (e.message || e));
@@ -173,6 +183,7 @@ function appendLine(raw) {
   if (!line) return;
   lines.push(line);
   if (lines.length > MAXLINES) lines.splice(0, lines.length - MAXLINES);
+  queueForUpload(line);
 
   const f = el.filter.value;
   if (f && !line.includes(f)) return;
@@ -181,6 +192,43 @@ function appendLine(raw) {
   el.log.appendChild(makeDiv(line));
   if (stick) el.log.scrollTop = el.log.scrollHeight;
 }
+
+/* ---- streaming to the collector server (POST /lines) -------------------- */
+/* Browser reads the panel over Web Serial; the collector (tools/log-server.py)
+ * only ever sees the lines the browser pushes here. Batched once a second,
+ * text/plain (CORS-safe: no preflight). Failures hold the batch and retry. */
+const BATCH_MAX = 500;
+const unsent = [];
+let posting = false;
+let streamFailures = 0;
+
+function queueForUpload(line) {
+  unsent.push(line);
+  if (unsent.length > 4000) unsent.splice(0, unsent.length - 4000);
+}
+
+setInterval(async () => {
+  const ep = el.srv.value.trim();
+  if (!ep || !el.stream.checked || !unsent.length || posting) return;
+  posting = true;
+  const batch = unsent.splice(0, BATCH_MAX);
+  try {
+    const r = await fetch(`http://${ep}/lines`, {
+      method: "POST", body: batch.join("\n"),
+      headers: { "Content-Type": "text/plain" },
+    });
+    if (!r.ok) throw new Error(r.status);
+    streamFailures = 0;
+    if (port) setStatus("connected — streaming to collector");
+  } catch (e) {
+    batch.forEach(l => unsent.push(l));          /* retry next tick, in order */
+    if (++streamFailures === 1) {
+      setStatus("collector unreachable — holding lines locally");
+    }
+  } finally {
+    posting = false;
+  }
+}, 1000);
 
 el.log.addEventListener("scroll", () => {
   stick = el.log.scrollHeight - el.log.scrollTop - el.log.clientHeight < 40;
