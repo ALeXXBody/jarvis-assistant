@@ -64,3 +64,6 @@ CONFIG_OTA_ALLOW_HTTP=y
 # the vendor slave firmware (JC-C6-slave) as shipped from the factory.
 CONFIG_ESP_HOSTED_SDIO_HOST=y
 CONFIG_ESP_WIFI_REMOTE_ENABLED=y
+# ESP-Hosted host side of the Wi-Fi RPC: provides the strong esp_wifi_remote_*
+# symbols (the weak ones only answer ESP_ERR_NOT_SUPPORTED)
+CONFIG_ESP_HOSTED_HOST_FEAT_WIFI=y
