@@ -247,16 +247,17 @@ bool jarvis_ota_check_async(void)
 static void autocheck_task(void *arg)
 {
     (void)arg;
-    /* Wait up to ~60 s for link; a bench board with no Wi-Fi just gives up. */
-    for (int i = 0; i < 120 && !net_up(); i++) {
-        vTaskDelay(pdMS_TO_TICKS(500));
+    /* Check whenever the panel is online, then every 30 minutes. Wi-Fi comes
+     * up after boot (or later, via the setup page), so a single check at boot
+     * would never run on a panel that joins the network afterwards.          */
+    while (true) {
+        if (net_up()) {
+            jarvis_ota_check_async();
+            vTaskDelay(pdMS_TO_TICKS(30 * 60 * 1000));
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(15 * 1000));
+        }
     }
-    if (!net_up()) {
-        ESP_LOGI(TAG, "no network yet; skipping boot update check");
-    } else {
-        jarvis_ota_check_async();
-    }
-    vTaskDelete(NULL);
 }
 
 void jarvis_ota_autocheck_start(void)
