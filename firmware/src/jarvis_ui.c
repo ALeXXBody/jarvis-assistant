@@ -630,6 +630,15 @@ static void apply_fields(void)
     }
 }
 
+static const char *const kbd_special[] = {
+    "SHIFT", "@", ":", "/", ".", "-", "_", "DEL",
+};
+#define KBD_SPECIAL_N ((int)(sizeof(kbd_special) / sizeof(kbd_special[0])))
+static int kbd_special_w(void)
+{
+    return (SCR_W - 32 - (KBD_SPECIAL_N - 1) * 4) / KBD_SPECIAL_N;
+}
+
 static const char *const kbd_letters[3] = {
     "qwertyuiop", "asdfghjkl", "zxcvbnm",
 };
@@ -677,12 +686,12 @@ static void draw_settings(uint16_t *fb, const jarvis_snapshot_t *s)
     for (int i = 0; i < (int)s_apcnt && i < SET_MAX_ROWS; i++) {
         if (i == s_sel) {
             fill_rect(fb, 24, y, SCR_W - 24, y + SET_ROW_H - 6,
-                      RGB565(20, 44, 56));
-            fill_rect(fb, 24, y, 28, y + SET_ROW_H - 6, C_IDLE);
+                      RGB565(0, 92, 120));
+            fill_rect(fb, 24, y, 36, y + SET_ROW_H - 6, RGB565(120, 230, 255));
         }
         char buf[40];
         snprintf(buf, sizeof(buf), "%.28s", s_aps[i].ssid);
-        draw_text_aa(fb, 44, y + 22, buf, i == s_sel ? C_IDLE : C_TEXT, 0, 3);
+        draw_text_aa(fb, 52, y + 22, buf, i == s_sel ? C_TEXT_HI : C_TEXT, 0, 3);
         char rssi[16];
         snprintf(rssi, sizeof(rssi), "%d dBm", s_aps[i].rssi);
         int rw = text_w(rssi, 0, 2);
@@ -740,17 +749,14 @@ static void draw_settings(uint16_t *fb, const jarvis_snapshot_t *s)
         x += KBD_KEY_W + 4;
     }
     yk += KBD_ROW_STEP;
-    /* special row */
-    int sw = (SCR_W - 32) / 6;
-    draw_button(fb, 16, yk, 16 + sw - 4, yk + KBD_KEY_H,
-                s_shift ? C_IDLE : C_HAIR, s_shift ? C_IDLE : C_TEXT, "SHIFT");
-    const char *syms[4] = { "@", "#", "/", "." };
-    for (int i = 0; i < 4; i++) {
-        draw_button(fb, 16 + (i + 1) * sw, yk, 16 + (i + 2) * sw - 4,
-                    yk + KBD_KEY_H, C_HAIR, C_TEXT, syms[i]);
+    /* special row: one table drives both drawing and hit-testing */
+    for (int i = 0; i < KBD_SPECIAL_N; i++) {
+        int x0 = 16 + i * (kbd_special_w() + 4);
+        bool lit = (i == 0 && s_shift);
+        draw_button(fb, x0, yk, x0 + kbd_special_w(), yk + KBD_KEY_H,
+                    lit ? C_IDLE : C_HAIR, lit ? C_IDLE : C_TEXT,
+                    kbd_special[i]);
     }
-    draw_button(fb, 16 + 5 * sw, yk, SCR_W - 16, yk + KBD_KEY_H, C_HAIR,
-                C_TEXT, "DEL");
 }
 
 /* -------------------------------------------------- settings taps --------- */
@@ -826,13 +832,19 @@ static void settings_tap(uint16_t px, uint16_t py)
     }
     yk += KBD_ROW_STEP;
     if (py >= yk && py < yk + KBD_KEY_H) {
-        int sw = (SCR_W - 32) / 6;
-        if (px < 16 + sw) { s_shift = !s_shift; return; }
-        if (px < 16 + 2 * sw) { kbd_char('@'); return; }
-        if (px < 16 + 3 * sw) { kbd_char('#'); return; }
-        if (px < 16 + 4 * sw) { kbd_char('/'); return; }
-        if (px < 16 + 5 * sw) { kbd_char('.'); return; }
-        kbd_del();
+        for (int i = 0; i < KBD_SPECIAL_N; i++) {
+            int x0 = 16 + i * (kbd_special_w() + 4);
+            if (px >= x0 && px < x0 + kbd_special_w()) {
+                if (i == 0) {
+                    s_shift = !s_shift;
+                } else if (i == KBD_SPECIAL_N - 1) {
+                    kbd_del();
+                } else {
+                    kbd_char(kbd_special[i][0]);
+                }
+                return;
+            }
+        }
         return;
     }
 }
