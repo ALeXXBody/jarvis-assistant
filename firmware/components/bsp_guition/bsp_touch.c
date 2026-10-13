@@ -25,6 +25,8 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "nvs_flash.h"
+#include "nvs.h"
 
 static const char *TAG = "bsp_touch";
 
@@ -39,13 +41,77 @@ extern const struct gsl_fw_rec {
 #define GSL_DATA_LEN       44
 #define GSL_MAX_FINGERS    3
 
-/* ESPHome model calibration for this board — hardware-validated. */
+/* ESPHome model calibration for this board; raw windows keep the rescale. */
 #define GSL_RAW_X_MIN      20
 #define GSL_RAW_X_MAX      880
 #define GSL_RAW_Y_MIN      20
 #define GSL_RAW_Y_MAX      1648
 
+#define CAL_NS "touch"
+
 static i2c_master_dev_handle_t s_dev;
+
+/* Orientation signs are USER-DEFINED via the on-screen axis wizard: every
+ * guessed sign was contradicted in the field, so the panel must not guess.
+ * oxx = x mirrored, oyy = y mirrored; persisted in NVS.                   */
+static bool s_oxx, s_oyy;
+
+void bsp_touch_get_orient(bool *ox, bool *oy)
+{
+    *ox = s_oxx;
+    *oy = s_oyy;
+}
+
+void bsp_touch_set_orient(bool ox, bool oy)
+{
+    s_oxx = ox;
+    s_oyy = oy;
+    nvs_handle_t h;
+    if (nvs_open(CAL_NS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_u8(h, "oxx", ox ? 1 : 0);
+        nvs_set_u8(h, "oyy", oy ? 1 : 0);
+        nvs_set_u8(h, "oridone", 1);
+        nvs_commit(h);
+        nvs_close(h);
+        ESP_LOGI(TAG, "orientation stored: xmir=%d ymir=%d", ox, oy);
+    }
+}
+
+bool bsp_touch_orient_done(void)
+{
+    uint8_t done = 0;
+    nvs_handle_t h;
+    if (nvs_open(CAL_NS, NVS_READONLY, &h) == ESP_OK) {
+        nvs_get_u8(h, "oridone", &done);
+        nvs_close(h);
+    }
+    return done != 0;
+}
+
+void bsp_touch_orient_reset(void)
+{
+    s_oxx = s_oyy = false;
+    nvs_handle_t h;
+    if (nvs_open(CAL_NS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_erase_key(h, "oridone");
+        nvs_commit(h);
+        nvs_close(h);
+        ESP_LOGI(TAG, "orientation cleared - wizard runs again");
+    }
+}
+
+static void orient_load(void)
+{
+    uint8_t xv = 0, yv = 0;
+    nvs_handle_t h;
+    if (nvs_open(CAL_NS, NVS_READONLY, &h) == ESP_OK) {
+        nvs_get_u8(h, "oxx", &xv);
+        nvs_get_u8(h, "oyy", &yv);
+        nvs_close(h);
+    }
+    s_oxx = xv != 0;
+    s_oyy = yv != 0;
+}
 
 /* Diagnostic counters (console `touch` probe). */
 static uint32_t s_taps, s_no_touch, s_i2c_err;
@@ -207,6 +273,7 @@ esp_err_t bsp_touch_init(void)
         ESP_LOGE(TAG, "touch bring-up failed after %d attempts", s_boot_attempts);
         return ESP_FAIL;
     }
+    orient_load();
     return ESP_OK;
 }
 
@@ -234,9 +301,13 @@ static void map_touch(uint16_t raw_x, uint16_t raw_y,
     if (dx >= BSP_LCD_H_RES) dx = BSP_LCD_H_RES - 1;
     if (dy >= BSP_LCD_V_RES) dy = BSP_LCD_V_RES - 1;
 
-    /* orientation — final, from the v0.1.17 field test (x correct, y
-     * inverted on the mirrored variant): plain scaled coordinates, no
-     * mirrors. The measured axes of this panel run in screen direction. */
+    /* user-defined orientation (axis wizard), NOT a compiled-in guess */
+    if (s_oxx) {
+        dx = BSP_LCD_H_RES - 1 - dx;
+    }
+    if (s_oyy) {
+        dy = BSP_LCD_V_RES - 1 - dy;
+    }
     *sx = (uint16_t)dx;
     *sy = (uint16_t)dy;
 }
