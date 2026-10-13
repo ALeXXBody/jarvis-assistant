@@ -234,14 +234,11 @@ static void map_touch(uint16_t raw_x, uint16_t raw_y,
     if (dx >= BSP_LCD_H_RES) dx = BSP_LCD_H_RES - 1;
     if (dy >= BSP_LCD_V_RES) dy = BSP_LCD_V_RES - 1;
 
-    /* hardware-validated EXCEPT for orientation: this unit's touch reads
-     * 180° off the render (field-confirmed "axes inverted" on v0.1.16) —
-     * rotate the result a half-turn so taps land under the finger.       */
-    dx = BSP_LCD_H_RES - 1 - dx;
-    dy = BSP_LCD_V_RES - 1 - dy;
-
-    *sx = (uint16_t)dx;
-    *sy = (uint16_t)dy;
+    /* orientation (field-confirmed on the v0.1.10-era sessions): the X axis
+     * reads correct with a single mirror, the Y axis reads inverted — so
+     * mirror X once and flip Y, nothing more. */
+    *sx = (uint16_t)(BSP_LCD_H_RES - 1 - dx);
+    *sy = (uint16_t)(BSP_LCD_V_RES - 1 - dy);
 }
 
 static bool touch_fetch(uint16_t *rx, uint16_t *ry)
