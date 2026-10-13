@@ -30,6 +30,7 @@
 #include "jarvis_settings.h"
 #include "jarvis_wifi.h"
 #include "jarvis_ws.h"
+#include "jarvis_ota.h"
 #include "freertos/semphr.h"
 
 #include <string.h>
@@ -679,7 +680,8 @@ static void draw_settings(uint16_t *fb, const jarvis_snapshot_t *s)
     fill_thin(fb, 0, 118, SCR_W, 119, C_HAIR);
 
     draw_button(fb, 24, 30, 220, 92, C_HAIR, C_TEXT, "BACK");
-    draw_text_aa(fb, 254, 40, "WIRELESS SETUP", C_TEXT_HI, 1, 10);
+    draw_text_aa(fb, 254, 40, "SETUP", C_TEXT_HI, 1, 10);
+    draw_button(fb, 448, 30, 604, 92, C_HAIR, C_IDLE, "UPDATE");
     draw_button(fb, SCR_W - 180, 30, SCR_W - 24, 92, C_HAIR, C_IDLE, "RESCAN");
     fill_thin(fb, 0, 116, SCR_W, 117, C_HAIR);
 
@@ -776,6 +778,14 @@ static void settings_tap(uint16_t px, uint16_t py)
     }
     if (px >= SCR_W - 190 && py >= 30 && py <= 92) {
         start_scan();
+        return;
+    }
+    if (px >= 440 && px < 604 && py >= 30 && py <= 92) {
+        if (jarvis_ota_check_async()) {
+            set_msg("checking for update...");
+        } else {
+            set_msg("update check busy");
+        }
         return;
     }
 
