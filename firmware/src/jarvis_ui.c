@@ -517,18 +517,19 @@ static void draw_wave_ring(uint16_t *fb, int cx, int cy, float base,
  * brain URL. Everything by touch; the serial console stays as a fallback.
  * Geometry is declared once so drawing and hit-testing can never drift.      */
 
-#define SET_LIST_Y0   140
-#define SET_ROW_H     60
-#define SET_MAX_ROWS  5
-#define SET_PASS_Y    452
-#define SET_URL_Y     512
-#define SET_APPLY_Y   576
-#define KBD_Y0        664
+#define SET_LIST_Y0   150
+#define SET_ROW_H     84
+#define SET_MAX_ROWS  4
+#define SET_PASS_Y    500
+#define SET_URL_Y     600
+#define SET_APPLY_Y   696
+#define KBD_Y0        800
 #define KBD_KEY_W     74
 #define KBD_KEY_H     60
 #define KBD_ROW_STEP  (KBD_KEY_H + 6)
 
 static volatile bool s_set_open;
+static int           s_cal_stage = -1;   /* >=0: corner walkthrough active  */
 static int           s_field;          /* 0 = wifi password, 1 = brain url */
 static char          s_pass[65];
 static char          s_url[161];
@@ -646,52 +647,58 @@ static void draw_settings(uint16_t *fb, const jarvis_snapshot_t *s)
     (void)s;
     fill_thin(fb, 0, 118, SCR_W, 119, C_HAIR);
 
-    draw_button(fb, 24, 34, 168, 78, C_HAIR, C_TEXT, "BACK");
-    draw_text_aa(fb, 200, 40, "WIRELESS  SETUP", C_TEXT_HI, 1, 8);
-    draw_button(fb, SCR_W - 190, 34, SCR_W - 24, 78, C_HAIR, C_IDLE, "RESCAN");
+    draw_button(fb, 24, 30, 220, 92, C_HAIR, C_TEXT, "BACK");
+    draw_text_aa(fb, 254, 40, "WIRELESS SETUP", C_TEXT_HI, 1, 10);
+    draw_button(fb, SCR_W - 180, 30, SCR_W - 24, 92, C_HAIR, C_IDLE, "RESCAN");
+    fill_thin(fb, 0, 116, SCR_W, 117, C_HAIR);
 
-    /* network list */
-    draw_text_aa(fb, 24, 108, "NETWORKS", C_TEXT_DIM, 0, 6);
+    /* network list — full-width rows */
     int y = SET_LIST_Y0;
     if (s_scanning) {
-        draw_text_aa(fb, 40, y + 14, "scanning ...", C_IDLE, 0, 4);
+        draw_text_aa(fb, 40, y + 24, "scanning ...", C_IDLE, 0, 4);
         y += SET_ROW_H;
     }
     for (int i = 0; i < (int)s_apcnt && i < SET_MAX_ROWS; i++) {
+        if (i == s_sel) {
+            fill_rect(fb, 24, y, SCR_W - 24, y + SET_ROW_H - 6,
+                      RGB565(20, 44, 56));
+            fill_rect(fb, 24, y, 28, y + SET_ROW_H - 6, C_IDLE);
+        }
         char buf[40];
         snprintf(buf, sizeof(buf), "%.28s", s_aps[i].ssid);
-        draw_text_aa(fb, 40, y + 14, buf, i == s_sel ? C_IDLE : C_TEXT, 0, 3);
+        draw_text_aa(fb, 44, y + 22, buf, i == s_sel ? C_IDLE : C_TEXT, 0, 3);
         char rssi[16];
         snprintf(rssi, sizeof(rssi), "%d dBm", s_aps[i].rssi);
-        draw_text_aa(fb, SCR_W - 190, y + 14, rssi, C_TEXT_DIM, 0, 2);
-        fill_thin(fb, 24, y + SET_ROW_H - 4, SCR_W - 24, y + SET_ROW_H - 3,
+        int rw = text_w(rssi, 0, 2);
+        draw_text_aa(fb, SCR_W - 44 - rw, y + 22, rssi, C_TEXT_DIM, 0, 2);
+        fill_thin(fb, 24, y + SET_ROW_H - 6, SCR_W - 24, y + SET_ROW_H - 5,
                   C_HAIR);
         y += SET_ROW_H;
     }
     if (!s_scanning && s_apcnt == 0) {
-        draw_text_aa(fb, 40, y + 14, "no networks yet", C_TEXT_DIM, 0, 3);
+        draw_text_aa(fb, 44, y + 24, "no networks yet", C_TEXT_DIM, 0, 3);
     }
 
-    /* fields */
+    /* fields — full-width bars */
     draw_text_aa(fb, 24, SET_PASS_Y, "PASSWORD", C_TEXT_DIM, 0, 6);
-    fill_rect(fb, 24, SET_PASS_Y + 34, 27, SET_PASS_Y + 66,
+    fill_thin(fb, 24, SET_PASS_Y + 34, SCR_W - 24, SET_PASS_Y + 86,
               s_field == 0 ? C_IDLE : C_HAIR);
-    draw_text_aa(fb, 40, SET_PASS_Y + 40,
+    draw_text_aa(fb, 40, SET_PASS_Y + 48,
                  s_pass[0] ? s_pass : "(empty)", C_TEXT, 0, 2);
 
     draw_text_aa(fb, 24, SET_URL_Y, "BRAIN URL", C_TEXT_DIM, 0, 6);
-    fill_rect(fb, 24, SET_URL_Y + 34, 27, SET_URL_Y + 66,
+    fill_thin(fb, 24, SET_URL_Y + 34, SCR_W - 24, SET_URL_Y + 86,
               s_field == 1 ? C_IDLE : C_HAIR);
-    draw_text_aa(fb, 40, SET_URL_Y + 40,
+    draw_text_aa(fb, 40, SET_URL_Y + 48,
                  s_url[0] ? s_url : "(empty)", C_TEXT, 0, 1);
 
-    draw_button(fb, 24, SET_APPLY_Y, SCR_W - 24, SET_APPLY_Y + 56,
+    draw_button(fb, 24, SET_APPLY_Y, SCR_W - 24, SET_APPLY_Y + 64,
                 s_field == 0 ? C_IDLE : C_HAIR, C_TEXT_HI,
                 s_field == 0 ? "CONNECT" : "SAVE BRAIN URL");
 
     if (s_set_msg &&
         (int)(xTaskGetTickCount() - s_set_msg_until) < 0) {
-        draw_text_aa(fb, 24, SET_APPLY_Y + 66, s_set_msg, C_THINK, 0, 2);
+        draw_text_aa(fb, 24, SET_APPLY_Y + 74, s_set_msg, C_THINK, 0, 2);
     }
 
     /* ---------------- keyboard ---------------- */
@@ -734,12 +741,12 @@ static void draw_settings(uint16_t *fb, const jarvis_snapshot_t *s)
 
 static void settings_tap(uint16_t px, uint16_t py)
 {
-    if (px < 200 && py >= 34 && py <= 78) {
+    if (px < 230 && py >= 30 && py <= 92) {
         s_set_open = false;
         s_sel = -1;
         return;
     }
-    if (px >= SCR_W - 200 && py >= 34 && py <= 78) {
+    if (px >= SCR_W - 190 && py >= 30 && py <= 92) {
         start_scan();
         return;
     }
@@ -747,7 +754,7 @@ static void settings_tap(uint16_t px, uint16_t py)
     /* network rows */
     int y = SET_LIST_Y0;
     for (int i = 0; i < (int)s_apcnt && i < SET_MAX_ROWS; i++) {
-        if (py >= y && py < y + SET_ROW_H - 4) {
+        if (py >= y && py < y + SET_ROW_H - 6) {
             s_sel = i;
             s_field = 0;
             return;
@@ -756,16 +763,16 @@ static void settings_tap(uint16_t px, uint16_t py)
     }
 
     /* fields */
-    if (py >= SET_PASS_Y && py < SET_PASS_Y + 80) {
+    if (py >= SET_PASS_Y && py < SET_PASS_Y + 92) {
         s_field = 0;
         return;
     }
-    if (py >= SET_URL_Y && py < SET_URL_Y + 80) {
+    if (py >= SET_URL_Y && py < SET_URL_Y + 92) {
         s_field = 1;
         return;
     }
     /* apply */
-    if (py >= SET_APPLY_Y && py < SET_APPLY_Y + 56) {
+    if (py >= SET_APPLY_Y && py < SET_APPLY_Y + 64) {
         apply_fields();
         return;
     }
@@ -816,25 +823,88 @@ static void settings_tap(uint16_t px, uint16_t py)
 
 /* --------------------------------------- main-screen tap routing ------------ */
 
+static void open_settings(void)
+{
+    s_set_open = true;
+    s_sel = -1;
+    const jarvis_settings_t *c = jarvis_settings();
+    strlcpy(s_pass, c->wifi_pass, sizeof(s_pass));
+    strlcpy(s_url, c->server_url, sizeof(s_url));
+    s_field = 0;
+    start_scan();
+    if (!bsp_touch_calibrated()) {
+        /* first ever setup: walk the four corners first */
+        s_cal_stage = 0;
+        bsp_touch_calibration_enable();
+    }
+}
+
 static void main_tap(uint16_t px, uint16_t py)
 {
-    /* the gear zone (top strip, right end) opens the settings sheet */
-    if (px >= SCR_W - 120 && py <= 100) {
-        s_set_open = true;
-        s_sel = -1;
-        const jarvis_settings_t *c = jarvis_settings();
-        strlcpy(s_pass, c->wifi_pass, sizeof(s_pass));
-        strlcpy(s_url, c->server_url, sizeof(s_url));
-        s_field = 0;
-        start_scan();
+    /* the whole top strip opens the settings sheet */
+    if (py <= 110) {
+        open_settings();
         return;
     }
     jarvis_state_touch_pulse();
     jarvis_turn_toggle();
 }
 
+/* ---- touch calibration walkthrough: one cross per corner ------------------ */
+
+static const struct { int x, y; const char *side; } cal_targets[4] = {
+    { 40, 40,   "TOP LEFT" },
+    { SCR_W - 40, 40,   "TOP RIGHT" },
+    { SCR_W - 40, SCR_H - 100, "BOTTOM RIGHT" },
+    { 40, SCR_H - 100, "BOTTOM LEFT" },
+};
+
+static void draw_calib(uint16_t *fb, int stage)
+{
+    /* big centred instructions + a crosshair at the active corner */
+    draw_label_centered_aa(fb, 120, "touch setup", C_IDLE, 2, 10);
+    draw_label_centered_aa(fb, 300, "tap the target", C_TEXT_HI, 1, 6);
+    draw_label_centered_aa(fb, 360, cal_targets[stage].side, C_IDLE, 2, 6);
+    draw_label_centered_aa(fb, 640, "then tap the screen inside it",
+                           C_TEXT_DIM, 0, 2);
+
+    /* faint outline of all four targets */
+    for (int i = 0; i < 4; i++) {
+        uint16_t c = (i < stage) ? C_SPEAK : C_HAIR;
+        fill_thin(fb, cal_targets[i].x - 40, cal_targets[i].y - 40,
+                  cal_targets[i].x + 40, cal_targets[i].y + 40, c);
+        fill_thin(fb, cal_targets[i].x - 40, cal_targets[i].y - 40,
+                  cal_targets[i].x + 40, cal_targets[i].y - 38, c);
+        fill_thin(fb, cal_targets[i].x - 40, cal_targets[i].y + 38,
+                  cal_targets[i].x + 40, cal_targets[i].y + 40, c);
+        fill_thin(fb, cal_targets[i].x - 40, cal_targets[i].y - 40,
+                  cal_targets[i].x - 38, cal_targets[i].y + 40, c);
+        fill_thin(fb, cal_targets[i].x + 38, cal_targets[i].y - 40,
+                  cal_targets[i].x + 40, cal_targets[i].y + 40, c);
+    }
+
+    const int tx = cal_targets[stage].x, ty = cal_targets[stage].y;
+    fill_thin(fb, tx - 60, ty - 2, tx + 60, ty + 2, C_THINK);
+    fill_thin(fb, tx - 2, ty - 60, tx + 2, ty + 60, C_THINK);
+}
+
+static void calib_tap(uint16_t px, uint16_t py)
+{
+    if (bsp_touch_calibration_sample(s_cal_stage, px, py)) {
+        bsp_touch_calibration_disable();
+        s_cal_stage = -1;
+        set_msg("touch calibrated");
+        return;
+    }
+    s_cal_stage = (s_cal_stage + 1) % 4;   /* resample the same corner        */
+}
+
 void jarvis_ui_tap(uint16_t x, uint16_t y)
 {
+    if (s_cal_stage >= 0) {
+        calib_tap(x, y);
+        return;
+    }
     if (s_set_open) {
         settings_tap(x, y);
         return;
@@ -860,6 +930,15 @@ static void ui_task(void *arg)
         uint16_t *fb = bsp_display_framebuffer();
         if (fb) {
             jarvis_state_copy(&snap);
+
+            if (s_cal_stage >= 0) {
+                fill_rect(fb, 0, 0, SCR_W, SCR_H, C_BG);
+                draw_calib(fb, s_cal_stage);
+                bsp_display_flush(0, 0, SCR_W, SCR_H);
+                t += 1.0f / JARVIS_UI_FPS;
+                vTaskDelay(pdMS_TO_TICKS(1000 / JARVIS_UI_FPS));
+                continue;
+            }
 
             if (s_set_open) {
                 /* settings sheet gets the whole frame */

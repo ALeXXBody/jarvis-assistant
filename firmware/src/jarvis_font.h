@@ -18,7 +18,7 @@ typedef struct {
     int16_t  yoff;      /* top of bitmap relative to the baseline       */
     uint16_t w, h;
     uint8_t  adv;       /* per-char advance (error <=1 px / original)  */
-    uint16_t data_off;  /* byte offset into jf_raster[]                */
+    uint32_t data_off;  /* byte offset into jf_raster[] (raster>64KB)  */
 } jf_glyph_t;
 
 static const uint8_t jf_ascent[JF_N_SIZES]  __attribute__((unused)) =

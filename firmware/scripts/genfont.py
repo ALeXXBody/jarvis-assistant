@@ -65,7 +65,7 @@ def main():
                 "    int16_t  yoff;      /* top of bitmap relative to the baseline       */\n"
                 "    uint16_t w, h;\n"
                 "    uint8_t  adv;       /* per-char advance (error <=1 px / original)  */\n"
-                "    uint16_t data_off;  /* byte offset into jf_raster[]                */\n"
+                "    uint32_t data_off;  /* byte offset into jf_raster[] (raster>64KB)  */\n"
                 "} jf_glyph_t;\n\n")
         # metrics per size
         mets = []

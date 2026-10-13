@@ -29,6 +29,7 @@
 #include "bsp_guition.h"
 
 #include <string.h>
+#include <stdlib.h>
 #include "esp_log.h"
 #include "esp_check.h"
 #include "driver/gpio.h"
@@ -60,6 +61,9 @@ extern const struct gsl_fw_rec {
  * parity) — the model-specific raw windows below are no longer needed. */
 
 static i2c_master_dev_handle_t s_dev;
+
+/* Calibration helpers live below; bsp_touch_init() runs them at boot. */
+static void cal_load(void);
 
 /* Diagnostic counters (console `touch` command). */
 static uint32_t s_taps, s_no_touch, s_i2c_err;
@@ -226,51 +230,180 @@ esp_err_t bsp_touch_init(void)
         ESP_LOGE(TAG, "touch bring-up failed after %d attempts", s_boot_attempts);
         return ESP_FAIL;
     }
+    cal_load();
     return ESP_OK;
 }
 
-/* ---- touch reads ---------------------------------------------------------- */
+/* ---------------- touch reads + 4-corner self calibration ------------------
+ * The GSL reports panel-pixel coordinates, but each unit's axis direction is
+ * only knowable in the field. Instead of hard-coding a transform, the panel
+ * self-calibrates: four corner touches, a linear map raw->screen, stored in
+ * NVS. All mapped reads go through j_touch_map(); bsp_touch_raw() exposes
+ * the untransformed values for the calibration screen itself.               */
+#include "nvs_flash.h"
+#include "nvs.h"
 
-bool bsp_touch_read(bsp_touch_point_t *pt)
+#define CAL_NS "touch"
+
+typedef struct {
+    bool     ok;
+    uint16_t rx[4], ry[4];      /* raw points at the 4 calibrated corners   */
+} touch_cal_t;
+
+static touch_cal_t s_cal;
+static bool        s_cal_mode;   /* calibration collection in progress     */
+static bool        s_cal_dirty;
+
+static void cal_load(void)
 {
-    if (!pt || !s_dev) {
+    memset(&s_cal, 0, sizeof(s_cal));
+    nvs_handle_t h;
+    if (nvs_open(CAL_NS, NVS_READONLY, &h) == ESP_OK) {
+        size_t sz = sizeof(s_cal);
+        if (nvs_get_blob(h, "cal", &s_cal, &sz) != ESP_OK) {
+            s_cal.ok = false;
+        }
+        nvs_close(h);
+    }
+    /* sanity: the stored corners must be spread out, or recalibrate */
+    if (s_cal.ok) {
+        int dx = s_cal.rx[2] - s_cal.rx[0];
+        int dy = s_cal.ry[2] - s_cal.ry[0];
+        if (abs(dx) < 400 || abs(dy) < 500) {
+            s_cal.ok = false;
+        }
+    }
+}
+
+static void cal_save(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(CAL_NS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_blob(h, "cal", &s_cal, sizeof(s_cal));
+        nvs_commit(h);
+        nvs_close(h);
+    }
+}
+
+void bsp_touch_calibration_reset(void)
+{
+    s_cal.ok = false;
+    cal_save();
+}
+
+void bsp_touch_calibration_enable(void)   /* UI collects 4 raw corners */
+{
+    s_cal_mode = true;
+}
+
+void bsp_touch_calibration_disable(void)
+{
+    s_cal_mode = false;
+}
+
+bool bsp_touch_calibrated(void)
+{
+    return s_cal.ok;
+}
+
+/* Feed one raw corner sample; returns true when all 4 are in and stored. */
+bool bsp_touch_calibration_sample(int corner, uint16_t rx, uint16_t ry)
+{
+    if (corner < 0 || corner > 3) {
         return false;
     }
+    s_cal.rx[corner] = rx;
+    s_cal.ry[corner] = ry;
+    /* corners: 0 TL, 1 TR, 2 BR, 3 BL — enough for a per-axis linear map */
+    int dx01 = s_cal.rx[1] - s_cal.rx[0];
+    int dx32 = s_cal.rx[2] - s_cal.rx[3];
+    int est_x = (abs(dx01) + abs(dx32)) / 2;
+    if (est_x < 400) {
+        return false;
+    }
+    int dy03 = s_cal.ry[3] - s_cal.ry[0];
+    int dy12 = s_cal.ry[2] - s_cal.ry[1];
+    int est_y = (abs(dy03) + abs(dy12)) / 2;
+    if (est_y < 500) {
+        return false;
+    }
+    s_cal.ok = true;
+    cal_save();
+    return true;
+}
 
+/* raw -> screen, averaged from both diagonals (TL = raw[0], TR = [1],
+ * BR = [2], BL = [3]); targets are screen corners with an inset margin. */
+static void cal_map(uint16_t rx, uint16_t ry, uint16_t *sx, uint16_t *sy)
+{
+    const int M = 20;                    /* calibration target inset      */
+    int w = BSP_LCD_H_RES - 1 - 2 * M;
+    int h = BSP_LCD_V_RES - 1 - 2 * M;
+
+    /* left edge average vs right edge average */
+    int lxr = (s_cal.rx[0] + s_cal.rx[3]) / 2;
+    int rxr = (s_cal.rx[1] + s_cal.rx[2]) / 2;
+    int t_yr = (s_cal.ry[0] + s_cal.ry[1]) / 2;
+    int b_yr = (s_cal.ry[2] + s_cal.ry[3]) / 2;
+
+    int x = M, y = M;
+    if (rxr != lxr) {
+        x = M + ((int)rx - lxr) * w / (rxr - lxr);
+    }
+    if (b_yr != t_yr) {
+        y = M + ((int)ry - t_yr) * h / (b_yr - t_yr);
+    }
+    if (x < 0)    x = 0;
+    if (x > BSP_LCD_H_RES - 1) x = BSP_LCD_H_RES - 1;
+    if (y < 0)    y = 0;
+    if (y > BSP_LCD_V_RES - 1) y = BSP_LCD_V_RES - 1;
+    *sx = (uint16_t)x;
+    *sy = (uint16_t)y;
+}
+
+bool bsp_touch_raw(uint16_t *rx, uint16_t *ry)
+{
+    if (!rx || !ry || !s_dev) {
+        return false;
+    }
     uint8_t reg = GSL_REG_DATA;
     uint8_t buf[GSL_DATA_LEN];
     if (i2c_master_transmit_receive(s_dev, &reg, 1, buf, sizeof(buf), 100) != ESP_OK) {
         s_i2c_err++;
         return false;
     }
-
     uint8_t fingers = buf[0] > GSL_MAX_FINGERS ? GSL_MAX_FINGERS : buf[0];
     if (fingers == 0) {
-        pt->pressed = false;
         s_no_touch++;
         return false;
     }
     s_taps++;
+    *rx = (uint16_t)(((buf[7] & 0x0f) << 8) | buf[6]);
+    *ry = (uint16_t)((buf[5] << 8) | buf[4]);
+    return true;
+}
 
-    /* Finger 0: base = 4. Vendor mapping — GSL3680 reports PIXEL
-     * coordinates natively on this panel (their demo relies on it:
-     * no swap, no scaling; library mirror_x/mirror_y with the app
-     * mirroring x again ⇒ net effect: x stays raw, y is mirrored). */
-    uint16_t raw_x = (uint16_t)(((buf[7] & 0x0f) << 8) | buf[6]);
-    uint16_t raw_y = (uint16_t)((buf[5] << 8) | buf[4]);
-
-    int x = raw_x;
-    int y = BSP_LCD_V_RES - 1 - raw_y;
-
-    /* defensive clamp only */
-    if (x < 0) x = 0;
-    if (x >= BSP_LCD_H_RES) x = BSP_LCD_H_RES - 1;
-    if (y < 0) y = 0;
-    if (y >= BSP_LCD_V_RES) y = BSP_LCD_V_RES - 1;
-
-    pt->x = (uint16_t)x;
-    pt->y = (uint16_t)y;
+bool bsp_touch_read(bsp_touch_point_t *pt)
+{
+    uint16_t rx, ry;
+    if (!pt || !bsp_touch_raw(&rx, &ry)) {
+        if (pt) {
+            pt->pressed = false;
+        }
+        return false;
+    }
+    if (s_cal_mode || !s_cal.ok) {
+        /* calibration collector (or uncalibrated board): RAW coordinates */
+        pt->pressed = true;
+        pt->x = rx;
+        pt->y = ry;
+        return true;
+    }
+    uint16_t sx, sy;
+    cal_map(rx, ry, &sx, &sy);
     pt->pressed = true;
+    pt->x = sx;
+    pt->y = sy;
     return true;
 }
 
