@@ -235,8 +235,10 @@ static void map_touch(uint16_t raw_x, uint16_t raw_y,
     if (dx >= BSP_LCD_H_RES) dx = BSP_LCD_H_RES - 1;
     if (dy >= BSP_LCD_V_RES) dy = BSP_LCD_V_RES - 1;
 
+    /* vertical axis is inverted on this unit: the corner test (TL, TR, BR, BL)
+     * registered TL as bottom-left. Horizontal is correct as it is. */
     *sx = (uint16_t)dx;
-    *sy = (uint16_t)dy;
+    *sy = (uint16_t)(BSP_LCD_V_RES - 1 - dy);
 }
 
 static bool touch_fetch(uint16_t *rx, uint16_t *ry)
