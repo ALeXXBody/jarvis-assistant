@@ -637,8 +637,24 @@ static void draw_button(uint16_t *fb, int x0, int y0, int x1, int y1,
                         uint16_t border, uint16_t textc, const char *label)
 {
     fill_thin(fb, x0, y0, x1, y1, border);
-    draw_label_centered_aa(fb, (y0 + y1) / 2 - jf_ascent[0] / 2, label,
-                           textc, 0, 2);
+
+    /* label centred INSIDE the button box — NOT on the screen (an earlier
+     * version reused the screen-centred helper, which piled every key's
+     * letter into the middle of the keyboard: the overlap the field saw) */
+    char up[24];
+    size_t n = 0;
+    for (; label[n] && n < sizeof(up) - 1; n++) {
+        up[n] = (label[n] >= 'a' && label[n] <= 'z')
+                ? (char)(label[n] - 32) : label[n];
+    }
+    up[n] = '\0';
+    int tw = text_w(up, 0, 2);
+    int bx = x0 + ((x1 - x0) - tw) / 2;
+    if (bx < x0) {
+        bx = x0;
+    }
+    int ty = (y0 + y1) / 2 - jf_ascent[0] / 2;
+    draw_text_aa(fb, bx, ty, up, textc, 0, 2);
 }
 
 static void draw_settings(uint16_t *fb, const jarvis_snapshot_t *s)
