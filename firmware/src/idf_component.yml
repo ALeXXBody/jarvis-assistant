@@ -20,3 +20,7 @@ dependencies:
   # firmware (JC-C6-slave, shipped on the board). Requires the matching
   # CONFIG_ESP_HOSTED_* block in sdkconfig.defaults.
   espressif/esp_hosted: "^3.0.9"
+  # Routes the standard esp_wifi_* API to the on-board C6 over ESP-Hosted.
+  # Without it CONFIG_ESP_WIFI_REMOTE_ENABLED does not exist and Wi-Fi is
+  # compiled out ("radio unavailable" on the setup sheet).
+  espressif/esp_wifi_remote: "^1.5.3"

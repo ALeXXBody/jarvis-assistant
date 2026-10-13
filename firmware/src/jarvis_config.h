@@ -87,6 +87,7 @@
 
 /* --- Feature gates ------------------------------------------------------ */
 /* Set by sdkconfig once ESP-Hosted (ESP32-C6) is wired up. */
+#include "sdkconfig.h"
 #if defined(CONFIG_ESP_WIFI_REMOTE_ENABLED) && CONFIG_ESP_WIFI_REMOTE_ENABLED
 #define JARVIS_HAVE_WIFI 1
 #else

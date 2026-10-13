@@ -22,6 +22,7 @@
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_netif.h"
+#include "esp_check.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -56,8 +57,7 @@ static const char *reason_text(int r)
     case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT:
     case WIFI_REASON_HANDSHAKE_TIMEOUT:     return "password rejected";
     case WIFI_REASON_NO_AP_FOUND:           return "AP not found";
-    case WIFI_REASON_ASSOC_FAIL:
-    case WIFI_REASON_ASSOC_REJECT:          return "AP refused (2.4 GHz?)";
+    case WIFI_REASON_ASSOC_FAIL:            return "AP refused (2.4 GHz?)";
     case WIFI_REASON_BEACON_TIMEOUT:        return "AP dropping (signal?)";
     default:                                return "reconnecting";
     }
@@ -140,7 +140,10 @@ esp_err_t jarvis_wifi_start(const char *ssid, const char *pass)
     if (err != ESP_OK) {
         return err;
     }
-    ESP_RETURN_ON_ERROR(esp_netif_create_default_wifi_sta(), TAG, "netif_sta");
+    if (esp_netif_create_default_wifi_sta() == NULL) {
+        ESP_LOGE(TAG, "netif_sta: could not create the station interface");
+        return ESP_FAIL;
+    }
 
     wifi_init_config_t ic = WIFI_INIT_CONFIG_DEFAULT();
     err = esp_wifi_init(&ic);
