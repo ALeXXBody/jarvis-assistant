@@ -97,6 +97,28 @@
   </div>
 
   <div class="card">
+    <h2 style="margin-top:0">2b · Update a panel that already runs JARVIS
+      <span class="fine">(keeps Wi-Fi + brain URL)</span></h2>
+    <p>Use this button to move an already-flashed panel to the new firmware
+    <strong>without erasing settings</strong>. It writes only the bootloader,
+    the partition table, the OTA slot selector and the application — never the
+    settings (NVS) region — so the Wi-Fi credentials and brain URL you entered
+    on the panel survive the update.</p>
+
+    <esp-web-install-button manifest="manifest-update.json">
+      <span slot="unsupported">This browser can’t install on ESP devices — use
+        Chrome, Edge or Opera on a desktop.</span>
+      <span slot="not-allowed">This page must be served over HTTPS or from
+        localhost.</span>
+    </esp-web-install-button>
+
+    <p class="fine">Connect, pick the panel’s port and confirm; the panel
+    reboots into the new firmware with its settings intact. Use the
+    <em>Install</em> button above only for a first-time flash or when you want
+    to wipe the board.</p>
+  </div>
+
+  <div class="card">
     <h2 style="margin-top:0">3 · First boot</h2>
     <p>The panel boots into JARVIS and starts a background update check against
     its configured release URL. To configure <em>your</em> brain URL for the

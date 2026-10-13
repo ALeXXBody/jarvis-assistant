@@ -13,6 +13,10 @@ firmware/dist/
 # The browser installer fetches the image into flash/ (flash/get-latest.sh);
 # serve it, don't commit it.
 flash/firmware.factory.bin
+flash/bootloader.bin
+flash/partitions.bin
+flash/ota_data_initial.bin
+flash/firmware.bin
 
 # Generated sdkconfig (rebuilt from sdkconfig.defaults on every build)
 firmware/sdkconfig

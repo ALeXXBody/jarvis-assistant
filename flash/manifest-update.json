@@ -1,0 +1,17 @@
+{
+  "name": "JARVIS satellite (GUITION JC8012P4A1C) — update, keep settings",
+  "version": "latest release",
+  "new_install_prompt_erase": false,
+  "builds": [
+    {
+      "chipFamily": "ESP32-P4",
+      "improv": false,
+      "parts": [
+        { "path": "bootloader.bin", "offset": 8192 },
+        { "path": "partitions.bin", "offset": 36864 },
+        { "path": "ota_data_initial.bin", "offset": 65536 },
+        { "path": "firmware.bin", "offset": 131072 }
+      ]
+    }
+  ]
+}

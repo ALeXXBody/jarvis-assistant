@@ -20,18 +20,25 @@ if command -v gh >/dev/null 2>&1; then
     gh release list --repo "$REPO" --limit 1 || true
     echo ">> downloading firmware.factory.bin from $REPO latest release"
     gh release download --repo "$REPO" --pattern 'firmware.factory.bin' --clobber
+    echo ">> downloading the update parts (bootloader / partitions / otadata / app)"
+    gh release download --repo "$REPO" \
+        --pattern 'bootloader.bin' --pattern 'partitions.bin' \
+        --pattern 'ota_data_initial.bin' --pattern 'firmware.bin' --clobber
 else
     echo ">>> no 'gh' CLI found; trying a plain anonymous download (works once"
     echo ">>> the repository is public)"
     curl -fL --retry 3 -o firmware.factory.bin \
         "https://github.com/$REPO/releases/latest/download/firmware.factory.bin"
+    for asset in bootloader.bin partitions.bin ota_data_initial.bin firmware.bin; do
+        curl -fL --retry 3 -o "$asset" \
+            "https://github.com/$REPO/releases/latest/download/$asset"
+    done
 fi
 
 echo
-echo ">> fetched file (compare with the release page):"
-ls -l firmware.factory.bin
-echo "   expected v0.1.7 size: 1,546,064 bytes — if yours differs, DO NOT"
-echo "   install; run this script again after 'git pull'."
+echo ">> fetched files (compare sizes with the release page):"
+ls -l firmware.factory.bin bootloader.bin partitions.bin ota_data_initial.bin firmware.bin
+echo "   if a file is missing or truncated, re-run this script."
 curl -fsSL --retry 3 -o version.txt --clobber \
     "https://github.com/$REPO/releases/latest/download/version.txt" 2>/dev/null \
     || gh release download --repo "$REPO" --pattern 'version.txt' --clobber

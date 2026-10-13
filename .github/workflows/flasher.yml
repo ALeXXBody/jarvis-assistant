@@ -33,16 +33,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
         run: |
-          gh release download "$TAG" --pattern 'firmware.factory.bin' \
+          gh release download "$TAG" \
+              --pattern 'firmware.factory.bin' \
+              --pattern 'bootloader.bin' \
+              --pattern 'partitions.bin' \
+              --pattern 'ota_data_initial.bin' \
+              --pattern 'firmware.bin' \
               --dir flash --clobber
 
-      - name: Stamp the manifest with the release version
+      - name: Stamp the manifests with the release version
         env:
           TAG: ${{ github.event.release.tag_name }}
         run: |
           # tag must name a directory-manifest version "latest release" -> vX.Y.Z
-          sed -i "s/\"latest release\"/\"$TAG\"/" flash/manifest.json
+          sed -i "s/\"latest release\"/\"$TAG\"/" flash/manifest.json flash/manifest-update.json
           python3 -m json.tool flash/manifest.json > /dev/null
+          python3 -m json.tool flash/manifest-update.json > /dev/null
 
       - uses: actions/configure-pages@v5
 
