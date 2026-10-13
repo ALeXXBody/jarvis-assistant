@@ -38,31 +38,41 @@ Schematic notes:
 
 ## Display — JD9365 (2_LCD.png + vendor v9 driver)
 
-Vendored driver `components/vendor_lcd_jd9365` matches the vendor v9
-NewPanel driver: init table, 80 MHz DPI (hs 20/20/40, vs 4/10/30),
-1500 Mbps lanes, both-axes mirror after init, 800×1280 @ 60 Hz.
-Field-verified: full image, margins gone (v0.1.4+).
+Vendored driver `firmware/components/vendor_lcd_jd9365` matches the vendor v9
+NewPanel driver: init table, 80 MHz DPI (hs 20/20/40, vs 4/10/30), 1500 Mbps
+lanes, both-axis mirror after init, 800x1280 at 60 Hz. Verified on the panel:
+full image, no dark margins.
 
-## Touch — GS L36xx (7_CODEC + vendor touch driver)
+Open: vertical white lines were reported on an early build and not re-checked.
 
-Vendor config for this exact board:
-`esp_lcd_touch_config_t{ .swap_xy=0, .mirror_x=1, .mirror_y=1 }` with the
-demo app doing one extra `x = W-1-x` ⇒ **effective: x = raw, y = V-1-raw,
-no swap, no scale** (the GSL reports pixel coordinates natively on this
-panel).
+## Touch — GSL3680 (vendor touch driver + field logs)
 
-Firmware v0.1.12 brought the load path to vendor parity (their verbatim
-4587-record firmware array + their register sequence + 0xB0 verify);
-v0.1.13 adopts the vendor-effective coordinate mapping (the previous
-ESPHome-style swap+rescale produced the garbage coordinates in the
-v0.1.3-era tap log).
+- Bring-up: vendor sequence (clear, reset, load 4587 firmware records, startup)
+  with the 0xB0 == 5A5A5A5A verify. Verified on the panel.
+- Coordinates: X follows the chip's raw axis with no flip (verified from corner
+  taps). Y is flipped (`sy = V-1-dy`), added after the corner test showed top
+  taps registering at the bottom. **Not yet verified on the panel.**
+- The tap log prints mapped and raw values: `tap at X,Y (raw RX,RY)`.
 
-## Opening items after this audit
+## Audio — ES8311 (7_CODEC.png)
 
-1. Touch on-device: confirm taps + `touch` probe → `0xb0` OK + taps
-   counter rising (v0.1.13).
-2. Audio end-to-end: needs the brain link (Wi-Fi provisioning first:
-   console `w / srv`), then a real turn through the bridge.
-3. WS2812 status LED: pin now schematic-correct (26); the driver stays
-   compile-gated until first light is wanted (enable `-D JARVIS_ENABLE_WS2812`
-   + `espressif/led_strip`).
+- Analog mic on MIC1P/MIC1N (differential), I2S on GPIO 9/10/11/12/13,
+  PA enable on GPIO 20, shared I2C on GPIO 7/8. Matches the firmware.
+- Microphone input gain was never set. It is now 24 dB (`BSP_AUDIO_MIC_GAIN_DB`
+  in `bsp_audio.c`). **Not verified on the panel** — the `mic level` log line
+  shows whether speech reaches the level threshold.
+
+## Wi-Fi — ESP32-C6 over ESP-Hosted
+
+- Requires `espressif/esp_wifi_remote` and `CONFIG_ESP_HOSTED_HOST_FEAT_WIFI=y`
+  (without them the Wi-Fi API is a stub that returns ESP_ERR_NOT_SUPPORTED).
+- Verified on the panel: station joins a 2.4 GHz WPA2 network and gets an IP.
+
+## Status of open items
+
+1. Running firmware version and update result — unknown until a console is
+   attached after a flash.
+2. Microphone level — unknown until a voice turn is logged.
+3. Touch Y-flip — unverified on the panel.
+4. The brain connection works (`ws://192.0.2.10:8765/ws`), but the bridge
+   answered `No transcript detected` for the test turns.

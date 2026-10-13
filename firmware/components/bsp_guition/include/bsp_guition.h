@@ -82,17 +82,6 @@ bool bsp_touch_read(bsp_touch_point_t *pt);
 void      bsp_touch_diag(void);
 
 
-/* ---- 4-corner self-calibration ------------------------------------------- */
-/* The GSL's axis direction is only knowable in the field; the settings
- * screen walks the user through four corner touches and stores a linear
- * raw->panel map in NVS. */
-void bsp_touch_calibration_reset(void);    /* forget calibration             */
-void bsp_touch_calibration_enable(void);   /* raw coordinates on until done  */
-void bsp_touch_calibration_disable(void);
-bool bsp_touch_calibrated(void);
-/* corner 0..3 = TL,TR,BR,BL; returns true once all four look sane */
-bool bsp_touch_calibration_sample(int corner, uint16_t rx, uint16_t ry);
-bool bsp_touch_raw(uint16_t *rx, uint16_t *ry);
 
 /* ------------------------------------------------------------------------- */
 /* Audio (ES8311)                                                            */

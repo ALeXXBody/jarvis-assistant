@@ -19,6 +19,8 @@
 #include "esp_codec_dev_defaults.h"
 #include "es8311_codec.h"
 
+#define BSP_AUDIO_MIC_GAIN_DB 24.0f
+
 static const char *TAG = "bsp_audio";
 
 #define BSP_AUDIO_SAMPLE_RATE   16000
@@ -138,6 +140,13 @@ esp_err_t bsp_audio_init(void)
     };
     ESP_RETURN_ON_ERROR(esp_codec_dev_open(s_dev, &fs), TAG, "codec open");
     esp_codec_dev_set_out_vol(s_dev, s_volume);
+
+    /* Microphone input gain. The ES8311 powers up with its own default input
+     * gain and nothing here set it, so the mic read as silence. 24 dB is the
+     * starting point; the "mic level" log line shows the result.            */
+    int gerr = esp_codec_dev_set_in_gain(s_dev, BSP_AUDIO_MIC_GAIN_DB);
+    ESP_LOGI(TAG, "mic input gain %.1f dB (%s)", (double)BSP_AUDIO_MIC_GAIN_DB,
+             gerr == ESP_CODEC_DEV_OK ? "set" : "FAILED");
 
     s_ready = true;
     ESP_LOGI(TAG, "ES8311 up @ %d Hz mono, vol %d", BSP_AUDIO_SAMPLE_RATE, s_volume);
