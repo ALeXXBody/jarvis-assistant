@@ -22,7 +22,7 @@
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_netif.h"
-#include "esp_check.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -63,6 +63,17 @@ static const char *reason_text(int r)
     }
 }
 
+static esp_netif_t       *s_netif;        /* created once              */
+static bool               s_inited;       /* esp_wifi_init + mode done  */
+static bool               s_handlers;     /* event handlers registered  */
+static esp_timer_handle_t s_retry_timer;  /* reconnect back-off         */
+
+static void retry_cb(void *arg)
+{
+    (void)arg;
+    esp_wifi_connect();
+}
+
 static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     static int s_streak = 0;
@@ -73,33 +84,94 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
             jarvis_state_status("wifi: connecting");
             esp_wifi_connect();
         } else {
-            /* no credentials: stay up for scanning / settings UI */
-            ESP_LOGI(TAG, "station up — no credentials, idle for scanning");
+            ESP_LOGI(TAG, "station up - no credentials, idle for scanning");
         }
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         wifi_event_sta_disconnected_t *ev = (wifi_event_sta_disconnected_t *)data;
         int reason = ev ? ev->reason : 0;
         s_connected = false;
         jarvis_state_conn(false, false);
+        if (!s_want_join) {
+            return;                       /* nothing configured: stay quiet */
+        }
         if (++s_streak <= 3 || (s_streak % 5) == 0) {
             ESP_LOGW(TAG, "disconnected (%d: %s), retrying", reason,
                      reason_text(reason));
         }
-        jarvis_state_status("wifi down");
         char buf[64];
         snprintf(buf, sizeof(buf), "wifi: %s", reason_text(reason));
         jarvis_state_error(buf);
-        if (reason != WIFI_REASON_AUTH_LEAVE) {
-            vTaskDelay(pdMS_TO_TICKS(3000));
-            esp_wifi_connect();
+        if (reason != WIFI_REASON_AUTH_LEAVE && s_retry_timer) {
+            esp_timer_stop(s_retry_timer);            /* ignore "not running" */
+            esp_timer_start_once(s_retry_timer, 3000 * 1000);   /* 3 s later */
         }
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *ev = (ip_event_got_ip_t *)data;
-        ESP_LOGI(TAG, "got ip: " IPSTR " (rssi ok, attempt #%d)",
-                 IP2STR(&ev->ip_info.ip), s_streak);
+        ESP_LOGI(TAG, "got ip: " IPSTR, IP2STR(&ev->ip_info.ip));
+        s_streak = 0;
         s_connected = true;
         jarvis_state_conn(true, false);
     }
+}
+
+/* One-time bring-up: netif, driver, handlers, mode. Safe to call again:
+ * every step is skipped when already done, and a failure leaves no state
+ * that makes the next call fail the same way.                              */
+static esp_err_t wifi_bring_up_once(void)
+{
+    esp_err_t err = jarvis_net_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (!s_netif) {
+        s_netif = esp_netif_create_default_wifi_sta();
+    }
+    if (!s_netif) {
+        ESP_LOGE(TAG, "station netif could not be created");
+        return ESP_FAIL;
+    }
+
+    wifi_init_config_t ic = WIFI_INIT_CONFIG_DEFAULT();
+    err = esp_wifi_init(&ic);
+    if (err != ESP_OK && err != ESP_ERR_WIFI_INIT_STATE) {
+        ESP_LOGE(TAG, "esp_wifi_init failed: %s (on-board C6 slave present?)",
+                 esp_err_to_name(err));
+        jarvis_state_error("wifi: C6 link failed");
+        return err;
+    }
+
+    if (!s_handlers) {
+        err = esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
+                                                  on_wifi_event, NULL, NULL);
+        if (err == ESP_OK) {
+            err = esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
+                                                      on_wifi_event, NULL, NULL);
+        }
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "event handler registration: %s", esp_err_to_name(err));
+            return err;
+        }
+        s_handlers = true;
+    }
+
+    if (!s_retry_timer) {
+        esp_timer_create_args_t targs = {
+            .callback = retry_cb,
+            .name = "wifi_retry",
+        };
+        if (esp_timer_create(&targs, &s_retry_timer) != ESP_OK) {
+            s_retry_timer = NULL;         /* reconnect then relies on events */
+        }
+    }
+
+    err = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "set_mode: %s", esp_err_to_name(err));
+        jarvis_state_error("wifi: mode failed");
+        return err;
+    }
+    s_inited = true;
+    return ESP_OK;
 }
 
 esp_err_t jarvis_wifi_start(const char *ssid, const char *pass)
@@ -111,16 +183,24 @@ esp_err_t jarvis_wifi_start(const char *ssid, const char *pass)
     }
     s_want_join = (ssid[0] != '\0');
 
-    if (s_started) {
-        /* reconfigure on the fly (settings UI changed the network) */
-        wifi_config_t wc = { 0 };
-        strlcpy((char *)wc.sta.ssid, ssid, sizeof(wc.sta.ssid));
-        strlcpy((char *)wc.sta.password, pass ? pass : "", sizeof(wc.sta.password));
-        err = esp_wifi_set_config(WIFI_IF_STA, &wc);
+    if (!s_inited) {
+        err = wifi_bring_up_once();
         if (err != ESP_OK) {
-            jarvis_state_error("wifi: reconfig failed");
             return err;
         }
+    }
+
+    wifi_config_t wc = { 0 };
+    strlcpy((char *)wc.sta.ssid, ssid, sizeof(wc.sta.ssid));
+    strlcpy((char *)wc.sta.password, pass ? pass : "", sizeof(wc.sta.password));
+    err = esp_wifi_set_config(WIFI_IF_STA, &wc);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "set_config: %s", esp_err_to_name(err));
+        jarvis_state_error("wifi: config failed");
+        return err;
+    }
+
+    if (s_started) {
         if (s_want_join) {
             esp_wifi_disconnect();
             esp_wifi_connect();
@@ -129,55 +209,6 @@ esp_err_t jarvis_wifi_start(const char *ssid, const char *pass)
         return ESP_OK;
     }
 
-    if (!ssid[0]) {
-        /* no credentials saved yet: bring the radio up anyway so the
-         * settings screen can scan; nothing joins automatically       */
-        jarvis_state_status("wifi: not set up — use the settings screen");
-        /* fall through to radio bring-up below */
-    }
-
-    err = jarvis_net_init();
-    if (err != ESP_OK) {
-        return err;
-    }
-    if (esp_netif_create_default_wifi_sta() == NULL) {
-        ESP_LOGE(TAG, "netif_sta: could not create the station interface");
-        return ESP_FAIL;
-    }
-
-    wifi_init_config_t ic = WIFI_INIT_CONFIG_DEFAULT();
-    err = esp_wifi_init(&ic);
-    if (err != ESP_OK) {
-        /* ESP-Hosted transport problems (C6 slave missing / SDIO) land here. */
-        ESP_LOGE(TAG, "esp_wifi_init failed: %s (on-board C6 slave present?)",
-                 esp_err_to_name(err));
-        jarvis_state_error("wifi: C6 link failed");
-        return err;
-    }
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
-                                                        ESP_EVENT_ANY_ID,
-                                                        on_wifi_event, NULL,
-                                                        NULL));
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
-                                                        IP_EVENT_STA_GOT_IP,
-                                                        on_wifi_event, NULL,
-                                                        NULL));
-
-    wifi_config_t wc = { 0 };
-    strlcpy((char *)wc.sta.ssid, ssid, sizeof(wc.sta.ssid));
-    strlcpy((char *)wc.sta.password, pass ? pass : "", sizeof(wc.sta.password));
-    err = esp_wifi_set_mode(WIFI_MODE_STA);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "set_mode: %s", esp_err_to_name(err));
-        jarvis_state_error("wifi: mode failed");
-        return err;
-    }
-    err = esp_wifi_set_config(WIFI_IF_STA, &wc);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "set_config: %s", esp_err_to_name(err));
-        jarvis_state_error("wifi: config failed");
-        return err;
-    }
     err = esp_wifi_start();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "start: %s", esp_err_to_name(err));
