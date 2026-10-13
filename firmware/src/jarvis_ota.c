@@ -64,7 +64,14 @@ static int version_cmp(const char *a, const char *b)
 }
 
 /* GETs a small text body (used for version.txt). Returns true on HTTP 200. */
+static bool http_get_text_depth(const char *url, char *out, size_t cap, int depth);
+
 static bool http_get_text(const char *url, char *out, size_t cap)
+{
+    return http_get_text_depth(url, out, cap, 0);
+}
+
+static bool http_get_text_depth(const char *url, char *out, size_t cap, int depth)
 {
     esp_http_client_config_t cfg = {
         .url = url,
@@ -86,6 +93,20 @@ static bool http_get_text(const char *url, char *out, size_t cap)
          * read loop below handles both fixed and chunked responses. */
         esp_http_client_fetch_headers(c);
         int status = esp_http_client_get_status_code(c);
+        if ((status == 301 || status == 302 || status == 303 ||
+             status == 307 || status == 308) && depth < 4) {
+            /* GitHub's releases/latest/download sends a redirect to the asset
+             * host. esp_http_client_open() does not follow redirects itself,
+             * so follow the Location header here.                          */
+            char loc[256] = { 0 };
+            char *locp = NULL;
+            if (esp_http_client_get_header(c, "Location", &locp) == ESP_OK && locp) {
+                strlcpy(loc, locp, sizeof(loc));
+                esp_http_client_close(c);
+                esp_http_client_cleanup(c);
+                return http_get_text_depth(loc, out, cap, depth + 1);
+            }
+        }
         if (status == 200) {
             int total = 0;
             while (total < (int)cap - 1) {
