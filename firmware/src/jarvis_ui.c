@@ -551,8 +551,13 @@ static void scan_task(void *arg)
 {
     (void)arg;
     size_t n = 0;
-    esp_err_t e = jarvis_wifi_start(jarvis_settings()->wifi_ssid,
-                                    jarvis_settings()->wifi_pass);
+    /* start the radio only if it is not running: restarting it on every scan
+     * forced a disconnect/reconnect each time the setup page opened.        */
+    esp_err_t e = ESP_OK;
+    if (!jarvis_wifi_started()) {
+        e = jarvis_wifi_start(jarvis_settings()->wifi_ssid,
+                              jarvis_settings()->wifi_pass);
+    }
     s_scanning = true;
     if (e != ESP_OK) {
         set_msg("radio unavailable");
@@ -624,7 +629,8 @@ static void apply_fields(void)
         set_msg("connecting...");
     } else {
         const jarvis_settings_t *c = jarvis_settings();
-        jarvis_settings_set_server(s_url, c->conversation);
+        esp_err_t se = jarvis_settings_set_server(s_url, c->conversation);
+        ESP_LOGI(TAG, "brain url saved (%s): \"%s\"", esp_err_to_name(se), s_url);
         jarvis_ws_start(jarvis_settings()->server_url);
         set_msg("brain link applying");
     }
