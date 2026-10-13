@@ -6,6 +6,7 @@
 #include "jarvis_ws.h"
 #include "jarvis_wifi.h"
 #include "jarvis_state.h"
+#include "jarvis_ui.h"
 #include "bsp_guition.h"
 
 #include <stdio.h>
@@ -32,8 +33,9 @@ static void touch_task(void *arg)
         if (now && !was && (t - last) > pdMS_TO_TICKS(JARVIS_TAP_DEBOUNCE_MS)) {
             last = t;
             ESP_LOGI(TAG, "tap at %u,%u", pt.x, pt.y);
-            jarvis_state_touch_pulse();
-            jarvis_turn_toggle();
+            /* the UI owns all on-panel interaction: settings gear, settings
+             * screen, or turn trigger — nothing needs a desktop            */
+            jarvis_ui_tap(pt.x, pt.y);
         }
         was = now;
         vTaskDelay(pdMS_TO_TICKS(25));

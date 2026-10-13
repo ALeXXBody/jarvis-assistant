@@ -13,3 +13,8 @@
 #include "esp_err.h"
 
 esp_err_t jarvis_ui_init(void);
+
+/* Route a touch tap (screen coordinates) — the wake task forwards every tap
+ * here; the UI decides: open/close settings, settings widgets, or start a
+ * turn. Keeps all of the panel's interaction on the panel. */
+void jarvis_ui_tap(uint16_t x, uint16_t y);

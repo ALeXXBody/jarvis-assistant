@@ -29,6 +29,7 @@ static const char *TAG = "wifi";
 
 static bool s_connected;
 static bool s_started;
+static bool s_want_join;   /* credentials present -> join on STA_START     */
 
 esp_err_t jarvis_net_init(void)
 {
@@ -68,8 +69,13 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
 
     (void)arg;
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
-        jarvis_state_status("wifi: connecting");
-        esp_wifi_connect();
+        if (s_want_join) {
+            jarvis_state_status("wifi: connecting");
+            esp_wifi_connect();
+        } else {
+            /* no credentials: stay up for scanning / settings UI */
+            ESP_LOGI(TAG, "station up — no credentials, idle for scanning");
+        }
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         wifi_event_sta_disconnected_t *ev = (wifi_event_sta_disconnected_t *)data;
         int reason = ev ? ev->reason : 0;
@@ -100,9 +106,34 @@ esp_err_t jarvis_wifi_start(const char *ssid, const char *pass)
 {
     esp_err_t err;
 
-    if (!ssid || !ssid[0]) {
-        jarvis_state_status("wifi not configured — console: w <ssid> <pass>");
-        return ESP_ERR_INVALID_ARG;
+    if (!ssid) {
+        ssid = "";
+    }
+    s_want_join = (ssid[0] != '\0');
+
+    if (s_started) {
+        /* reconfigure on the fly (settings UI changed the network) */
+        wifi_config_t wc = { 0 };
+        strlcpy((char *)wc.sta.ssid, ssid, sizeof(wc.sta.ssid));
+        strlcpy((char *)wc.sta.password, pass ? pass : "", sizeof(wc.sta.password));
+        err = esp_wifi_set_config(WIFI_IF_STA, &wc);
+        if (err != ESP_OK) {
+            jarvis_state_error("wifi: reconfig failed");
+            return err;
+        }
+        if (s_want_join) {
+            esp_wifi_disconnect();
+            esp_wifi_connect();
+            ESP_LOGI(TAG, "reconfigured, joining \"%s\"", ssid);
+        }
+        return ESP_OK;
+    }
+
+    if (!ssid[0]) {
+        /* no credentials saved yet: bring the radio up anyway so the
+         * settings screen can scan; nothing joins automatically       */
+        jarvis_state_status("wifi: not set up — use the settings screen");
+        /* fall through to radio bring-up below */
     }
 
     err = jarvis_net_init();
@@ -151,12 +182,67 @@ esp_err_t jarvis_wifi_start(const char *ssid, const char *pass)
         return err;
     }
     s_started = true;
-    ESP_LOGI(TAG, "station started, joining \"%s\"", ssid);
+    ESP_LOGI(TAG, "station started%s%s", s_want_join ? ", joining \"" : "",
+             s_want_join ? ssid : "");
     return ESP_OK;
 }
 
 bool jarvis_wifi_connected(void) { return s_connected; }
 bool jarvis_wifi_started(void)   { return s_started; }
+
+esp_err_t jarvis_wifi_scan(jarvis_wifi_ap_t *out, size_t *cnt, size_t max)
+{
+    if (!s_started) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!out || !cnt) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    wifi_scan_config_t sc = { 0 };
+    sc.show_hidden = false;
+    esp_err_t err = esp_wifi_scan_start(&sc, true /* block */);
+    if (err != ESP_OK && err != ESP_ERR_WIFI_STATE) {
+        ESP_LOGW(TAG, "scan: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    uint16_t n = 0;
+    err = esp_wifi_scan_get_ap_num(&n);
+    if (err == ESP_OK && n == 0) {
+        *cnt = 0;
+        return ESP_OK;
+    }
+    if (n > 64) {
+        n = 64;    /* bounded; our UI lists up to 8, keep memory sane */
+    }
+
+    wifi_ap_record_t recs[64];
+    esp_wifi_scan_get_ap_records(&n, recs);    /* frees the scan memory  */
+
+    /* by RSSI (api returns sorted? not guaranteed on remote) — insertion sort */
+    for (uint16_t i = 1; i < n; i++) {
+        wifi_ap_record_t t = recs[i];
+        int j = i - 1;
+        while (j >= 0 && recs[j].rssi < t.rssi) {
+            recs[j + 1] = recs[j];
+            j--;
+        }
+        recs[j + 1] = t;
+    }
+
+    size_t k = 0;
+    for (uint16_t i = 0; i < n && k < max; i++) {
+        memset(out[k].ssid, 0, sizeof(out[k].ssid));
+        strlcpy(out[k].ssid, (char *)(recs[i].ssid[0] ? (const void *)recs[i].ssid
+                                                      : "(hidden)"),
+                sizeof(out[k].ssid));
+        out[k].rssi = recs[i].rssi;
+        k++;
+    }
+    *cnt = k;
+    return ESP_OK;
+}
 
 #else  /* !JARVIS_HAVE_WIFI */
 
@@ -173,5 +259,11 @@ esp_err_t jarvis_wifi_start(const char *ssid, const char *pass)
 
 bool jarvis_wifi_connected(void) { return false; }
 bool jarvis_wifi_started(void)   { return false; }
+
+esp_err_t jarvis_wifi_scan(jarvis_wifi_ap_t *out, size_t *cnt, size_t max)
+{
+    (void)out; (void)cnt; (void)max;
+    return ESP_ERR_NOT_SUPPORTED;
+}
 
 #endif /* JARVIS_HAVE_WIFI */

@@ -24,8 +24,13 @@
 #include "jarvis_config.h"
 #include "jarvis_state.h"
 #include "jarvis_audio.h"
+#include "jarvis_turn.h"
 #include "bsp_guition.h"
 #include "jarvis_font.h"
+#include "jarvis_settings.h"
+#include "jarvis_wifi.h"
+#include "jarvis_ws.h"
+#include "freertos/semphr.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -328,6 +333,12 @@ static void draw_top_bar(uint16_t *fb, const jarvis_snapshot_t *s)
     draw_text_aa(fb, 32, 28, "JARVIS", C_TEXT_HI, 1, 10);
     draw_text_aa(fb, 32, 74, "VOICE  SATELLITE", C_TEXT_DIM, 0, 6);
 
+    /* settings gear affordance: three hairlines, top-right well above the
+     * battery cluster (tap zone = the whole strip)                          */
+    for (int i = 0; i < 3; i++) {
+        int yy = 20 + i * 10;
+        fill_thin(fb, SCR_W - 46, yy, SCR_W - 14, yy + 2, C_TEXT_DIM);
+    }
     /* right cluster: wifi arcs at ~610, battery 690..758                    */
     bool wifi = s->wifi_connected;
     {
@@ -499,6 +510,339 @@ static void draw_wave_ring(uint16_t *fb, int cx, int cy, float base,
     }
 }
 
+
+/* -------------------------------------------------- on-panel settings ------
+ * Wireless setup lives on the panel: a gear zone opens it, the network scan
+ * list is right there, and an on-screen keyboard types the password and the
+ * brain URL. Everything by touch; the serial console stays as a fallback.
+ * Geometry is declared once so drawing and hit-testing can never drift.      */
+
+#define SET_LIST_Y0   140
+#define SET_ROW_H     60
+#define SET_MAX_ROWS  5
+#define SET_PASS_Y    452
+#define SET_URL_Y     512
+#define SET_APPLY_Y   576
+#define KBD_Y0        664
+#define KBD_KEY_W     74
+#define KBD_KEY_H     60
+#define KBD_ROW_STEP  (KBD_KEY_H + 6)
+
+static volatile bool s_set_open;
+static int           s_field;          /* 0 = wifi password, 1 = brain url */
+static char          s_pass[65];
+static char          s_url[161];
+static bool          s_shift;          /* one-shot uppercase               */
+static jarvis_wifi_ap_t s_aps[8];
+static size_t          s_apcnt;
+static volatile bool  s_scanning;
+static int            s_sel = -1;       /* selected scan index              */
+static const char    *s_set_msg;
+static TickType_t     s_set_msg_until;
+
+static void set_msg(const char *m)
+{
+    s_set_msg = m;
+    s_set_msg_until = xTaskGetTickCount() + pdMS_TO_TICKS(6000);
+}
+
+static void scan_task(void *arg)
+{
+    (void)arg;
+    size_t n = 0;
+    esp_err_t e = jarvis_wifi_start(jarvis_settings()->wifi_ssid,
+                                    jarvis_settings()->wifi_pass);
+    s_scanning = true;
+    if (e != ESP_OK) {
+        set_msg("radio unavailable");
+        s_scanning = false;
+        vTaskDelete(NULL);
+        return;
+    }
+    e = jarvis_wifi_scan(s_aps, &n, sizeof(s_aps) / sizeof(s_aps[0]));
+    if (e == ESP_OK) {
+        s_apcnt = n;
+        if (n == 0) {
+            set_msg("no networks found");
+        }
+    } else {
+        set_msg("scan failed");
+    }
+    s_scanning = false;
+    vTaskDelete(NULL);
+}
+
+static void start_scan(void)
+{
+    if (s_scanning) {
+        return;
+    }
+    s_apcnt = 0;
+    s_scanning = true;   /* catch the beat before the task even runs */
+    if (xTaskCreatePinnedToCore(scan_task, "ui_scan", 4096, NULL, 3, NULL, 1)
+        != pdPASS) {
+        s_scanning = false;
+        set_msg("scan: no task slots");
+    }
+}
+
+static void kbd_char(char c)
+{
+    char *f = (s_field == 0) ? s_pass : s_url;
+    size_t maxlen = (s_field == 0) ? sizeof(s_pass) - 1 : sizeof(s_url) - 1;
+    size_t n = strlen(f);
+    if (n >= maxlen) {
+        return;
+    }
+    if (s_shift && c >= 'a' && c <= 'z') {
+        c -= 32;
+        s_shift = false;
+    }
+    f[n] = c;
+    f[n + 1] = '\0';
+}
+
+static void kbd_del(void)
+{
+    char *f = (s_field == 0) ? s_pass : s_url;
+    size_t n = strlen(f);
+    if (n) {
+        f[n - 1] = '\0';
+    }
+}
+
+static void apply_fields(void)
+{
+    if (s_field == 0) {
+        if (s_sel < 0 || s_sel >= (int)s_apcnt) {
+            set_msg("tap a network first");
+            return;
+        }
+        jarvis_settings_set_wifi(s_aps[s_sel].ssid, s_pass);
+        jarvis_wifi_start(s_aps[s_sel].ssid, s_pass);
+        set_msg("connecting...");
+    } else {
+        const jarvis_settings_t *c = jarvis_settings();
+        jarvis_settings_set_server(s_url, c->conversation);
+        jarvis_ws_start(jarvis_settings()->server_url);
+        set_msg("brain link applying");
+    }
+}
+
+static const char *const kbd_letters[3] = {
+    "qwertyuiop", "asdfghjkl", "zxcvbnm",
+};
+
+static void draw_button(uint16_t *fb, int x0, int y0, int x1, int y1,
+                        uint16_t border, uint16_t textc, const char *label)
+{
+    fill_thin(fb, x0, y0, x1, y1, border);
+    draw_label_centered_aa(fb, (y0 + y1) / 2 - jf_ascent[0] / 2, label,
+                           textc, 0, 2);
+}
+
+static void draw_settings(uint16_t *fb, const jarvis_snapshot_t *s)
+{
+    (void)s;
+    fill_thin(fb, 0, 118, SCR_W, 119, C_HAIR);
+
+    draw_button(fb, 24, 34, 168, 78, C_HAIR, C_TEXT, "BACK");
+    draw_text_aa(fb, 200, 40, "WIRELESS  SETUP", C_TEXT_HI, 1, 8);
+    draw_button(fb, SCR_W - 190, 34, SCR_W - 24, 78, C_HAIR, C_IDLE, "RESCAN");
+
+    /* network list */
+    draw_text_aa(fb, 24, 108, "NETWORKS", C_TEXT_DIM, 0, 6);
+    int y = SET_LIST_Y0;
+    if (s_scanning) {
+        draw_text_aa(fb, 40, y + 14, "scanning ...", C_IDLE, 0, 4);
+        y += SET_ROW_H;
+    }
+    for (int i = 0; i < (int)s_apcnt && i < SET_MAX_ROWS; i++) {
+        char buf[40];
+        snprintf(buf, sizeof(buf), "%.28s", s_aps[i].ssid);
+        draw_text_aa(fb, 40, y + 14, buf, i == s_sel ? C_IDLE : C_TEXT, 0, 3);
+        char rssi[16];
+        snprintf(rssi, sizeof(rssi), "%d dBm", s_aps[i].rssi);
+        draw_text_aa(fb, SCR_W - 190, y + 14, rssi, C_TEXT_DIM, 0, 2);
+        fill_thin(fb, 24, y + SET_ROW_H - 4, SCR_W - 24, y + SET_ROW_H - 3,
+                  C_HAIR);
+        y += SET_ROW_H;
+    }
+    if (!s_scanning && s_apcnt == 0) {
+        draw_text_aa(fb, 40, y + 14, "no networks yet", C_TEXT_DIM, 0, 3);
+    }
+
+    /* fields */
+    draw_text_aa(fb, 24, SET_PASS_Y, "PASSWORD", C_TEXT_DIM, 0, 6);
+    fill_rect(fb, 24, SET_PASS_Y + 34, 27, SET_PASS_Y + 66,
+              s_field == 0 ? C_IDLE : C_HAIR);
+    draw_text_aa(fb, 40, SET_PASS_Y + 40,
+                 s_pass[0] ? s_pass : "(empty)", C_TEXT, 0, 2);
+
+    draw_text_aa(fb, 24, SET_URL_Y, "BRAIN URL", C_TEXT_DIM, 0, 6);
+    fill_rect(fb, 24, SET_URL_Y + 34, 27, SET_URL_Y + 66,
+              s_field == 1 ? C_IDLE : C_HAIR);
+    draw_text_aa(fb, 40, SET_URL_Y + 40,
+                 s_url[0] ? s_url : "(empty)", C_TEXT, 0, 1);
+
+    draw_button(fb, 24, SET_APPLY_Y, SCR_W - 24, SET_APPLY_Y + 56,
+                s_field == 0 ? C_IDLE : C_HAIR, C_TEXT_HI,
+                s_field == 0 ? "CONNECT" : "SAVE BRAIN URL");
+
+    if (s_set_msg &&
+        (int)(xTaskGetTickCount() - s_set_msg_until) < 0) {
+        draw_text_aa(fb, 24, SET_APPLY_Y + 66, s_set_msg, C_THINK, 0, 2);
+    }
+
+    /* ---------------- keyboard ---------------- */
+    int yk = KBD_Y0;
+    for (int r = 0; r < 3; r++) {
+        int count = strlen(kbd_letters[r]);
+        int row_w = count * KBD_KEY_W + (count - 1) * 4;
+        int x = (SCR_W - row_w) / 2;
+        for (int k = 0; k < count; k++) {
+            char lbl[2] = { kbd_letters[r][k], '\0' };
+            draw_button(fb, x, yk, x + KBD_KEY_W, yk + KBD_KEY_H, C_HAIR,
+                        C_TEXT, lbl);
+            x += KBD_KEY_W + 4;
+        }
+        yk += KBD_ROW_STEP;
+    }
+    /* digits */
+    int x = 16;
+    for (int i = 0; i < 10; i++) {
+        char lbl[2] = { (char)('0' + i), '\0' };
+        draw_button(fb, x, yk, x + KBD_KEY_W, yk + KBD_KEY_H, C_HAIR, C_TEXT,
+                    lbl);
+        x += KBD_KEY_W + 4;
+    }
+    yk += KBD_ROW_STEP;
+    /* special row */
+    int sw = (SCR_W - 32) / 6;
+    draw_button(fb, 16, yk, 16 + sw - 4, yk + KBD_KEY_H,
+                s_shift ? C_IDLE : C_HAIR, s_shift ? C_IDLE : C_TEXT, "SHIFT");
+    const char *syms[4] = { "@", "#", "/", "." };
+    for (int i = 0; i < 4; i++) {
+        draw_button(fb, 16 + (i + 1) * sw, yk, 16 + (i + 2) * sw - 4,
+                    yk + KBD_KEY_H, C_HAIR, C_TEXT, syms[i]);
+    }
+    draw_button(fb, 16 + 5 * sw, yk, SCR_W - 16, yk + KBD_KEY_H, C_HAIR,
+                C_TEXT, "DEL");
+}
+
+/* -------------------------------------------------- settings taps --------- */
+
+static void settings_tap(uint16_t px, uint16_t py)
+{
+    if (px < 200 && py >= 34 && py <= 78) {
+        s_set_open = false;
+        s_sel = -1;
+        return;
+    }
+    if (px >= SCR_W - 200 && py >= 34 && py <= 78) {
+        start_scan();
+        return;
+    }
+
+    /* network rows */
+    int y = SET_LIST_Y0;
+    for (int i = 0; i < (int)s_apcnt && i < SET_MAX_ROWS; i++) {
+        if (py >= y && py < y + SET_ROW_H - 4) {
+            s_sel = i;
+            s_field = 0;
+            return;
+        }
+        y += SET_ROW_H;
+    }
+
+    /* fields */
+    if (py >= SET_PASS_Y && py < SET_PASS_Y + 80) {
+        s_field = 0;
+        return;
+    }
+    if (py >= SET_URL_Y && py < SET_URL_Y + 80) {
+        s_field = 1;
+        return;
+    }
+    /* apply */
+    if (py >= SET_APPLY_Y && py < SET_APPLY_Y + 56) {
+        apply_fields();
+        return;
+    }
+    if (py < KBD_Y0) {
+        return;
+    }
+
+    /* keyboard rows */
+    int yk = KBD_Y0;
+    for (int r = 0; r < 3; r++) {
+        if (py >= yk && py < yk + KBD_KEY_H) {
+            int count = strlen(kbd_letters[r]);
+            int row_w = count * KBD_KEY_W + (count - 1) * 4;
+            int x = (SCR_W - row_w) / 2;
+            for (int k = 0; k < count; k++) {
+                if (px >= x && px < x + KBD_KEY_W) {
+                    kbd_char(kbd_letters[r][k]);
+                    return;
+                }
+                x += KBD_KEY_W + 4;
+            }
+        }
+        yk += KBD_ROW_STEP;
+    }
+    if (py >= yk && py < yk + KBD_KEY_H) {
+        int x = 16;
+        for (int i = 0; i < 10; i++) {
+            if (px >= x && px < x + KBD_KEY_W) {
+                kbd_char((char)('0' + i));
+                return;
+            }
+            x += KBD_KEY_W + 4;
+        }
+        return;
+    }
+    yk += KBD_ROW_STEP;
+    if (py >= yk && py < yk + KBD_KEY_H) {
+        int sw = (SCR_W - 32) / 6;
+        if (px < 16 + sw) { s_shift = !s_shift; return; }
+        if (px < 16 + 2 * sw) { kbd_char('@'); return; }
+        if (px < 16 + 3 * sw) { kbd_char('#'); return; }
+        if (px < 16 + 4 * sw) { kbd_char('/'); return; }
+        if (px < 16 + 5 * sw) { kbd_char('.'); return; }
+        kbd_del();
+        return;
+    }
+}
+
+/* --------------------------------------- main-screen tap routing ------------ */
+
+static void main_tap(uint16_t px, uint16_t py)
+{
+    /* the gear zone (top strip, right end) opens the settings sheet */
+    if (px >= SCR_W - 120 && py <= 100) {
+        s_set_open = true;
+        s_sel = -1;
+        const jarvis_settings_t *c = jarvis_settings();
+        strlcpy(s_pass, c->wifi_pass, sizeof(s_pass));
+        strlcpy(s_url, c->server_url, sizeof(s_url));
+        s_field = 0;
+        start_scan();
+        return;
+    }
+    jarvis_state_touch_pulse();
+    jarvis_turn_toggle();
+}
+
+void jarvis_ui_tap(uint16_t x, uint16_t y)
+{
+    if (s_set_open) {
+        settings_tap(x, y);
+        return;
+    }
+    main_tap(x, y);
+}
+
+
 /* ------------------------------------------------------------------- task -- */
 
 static void ui_task(void *arg)
@@ -516,6 +860,17 @@ static void ui_task(void *arg)
         uint16_t *fb = bsp_display_framebuffer();
         if (fb) {
             jarvis_state_copy(&snap);
+
+            if (s_set_open) {
+                /* settings sheet gets the whole frame */
+                fill_rect(fb, 0, 0, SCR_W, SCR_H, C_BG);
+                draw_settings(fb, &snap);
+                bsp_display_flush(0, 0, SCR_W, SCR_H);
+                t += 1.0f / JARVIS_UI_FPS;
+                vTaskDelay(pdMS_TO_TICKS(1000 / JARVIS_UI_FPS));
+                continue;
+            }
+
             state_style_t st;
             style_for(snap.state, &st);
 

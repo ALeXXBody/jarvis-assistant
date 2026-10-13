@@ -13,7 +13,13 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 #include "esp_err.h"
+
+typedef struct {
+    char ssid[33];        /* zero-terminated */
+    int8_t rssi;          /* dBm             */
+} jarvis_wifi_ap_t;
 
 /* Brings up esp_netif + the default event loop. Idempotent and safe to call
  * when Wi-Fi is unavailable — the TCP/IP stack the WebSocket client needs
@@ -26,3 +32,8 @@ esp_err_t jarvis_wifi_start(const char *ssid, const char *pass);
 
 bool jarvis_wifi_connected(void);
 bool jarvis_wifi_started(void);   /* esp_wifi_start() succeeded (not link up) */
+
+/* Blocking neighbour scan; caller provides storage. Up to `max` APs are
+ * returned, strongest first. Needs the radio started: jarvis_wifi_start("",
+ * NULL) is enough — station mode, no joining. */
+esp_err_t jarvis_wifi_scan(jarvis_wifi_ap_t *out, size_t *cnt, size_t max);
