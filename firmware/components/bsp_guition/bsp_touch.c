@@ -4,27 +4,17 @@
  * The GSL3670/GSL3680 has no usable on-chip touch firmware: after every reset
  * the host must load a firmware blob before the chip reports touches.
  *
- * The bring-up sequence below mirrors the VENDOR driver for this exact board
- * (JC8012P4A1C_I_W_Y NewPanel example, esp_lcd_gsl3680.c), including:
- *   - the INT pin driven LOW across the first reset (pin-latch phase),
- *   - the merged chip/scan engine register bounces with THEIR delays,
- *   - the firmware write + the 0xB0 == 5A5A5A5A verify with retries.
+ * Bring-up mirrors the VENDOR driver for this exact board (JC8012P4A1C
+ * NewPanel example, esp_lcd_gsl3680.c): INT-pin latch during the first
+ * reset, their register bounce sequence with their delays, the vendor
+ * firmware records (gsl3680_vfw.c) and the 0xB0 == 5A5A5A5A verify with
+ * retries.
  *
- * The register protocol follows the vendor flow:
- *
- *   vendor_clear_reg(): 0xe0=0x88 | 0x88=0x01 | 0xe4=0x04 | 0xe0=0x00
- *   vendor_reset():     GPIO RST low 20 ms, high 20 ms, then
- *                       0xe0=0x88 | 0xe4=0x04 | 0xbc=00 00 00 00
- *   load fw             (our blob, 132-byte blocks — engine remains armed
- *                        using the same blob that worked on v0.1.3)
- *   startup:            0xe0=0x00
- *   verify:             read 0xb0 == 5a 5a 5a 5a (worried → full retry)
- *
- * Report frame (read from reg 0x80, 44 bytes): fingers same mapping as the
- * vendor read (touch_data[0] = finger count, first finger at offset 4).
- *
- * Raw -> panel mapping for this model (ESPHome): swap_xy, mirror_x,
- * mirror_y=false, raw x/y spans 20..880 / 20..1648.
+ * Coordinate mapping is the ESPHome GUITION-JC8012P4A1 model config
+ * (swap_xy, raw windows ~20..880 / ~20..1648, mirror_x) — the one mapping
+ * this unit has validated on hardware; no automatic calibration gate
+ * exists (v0.1.15 lesson: the walkthrough could deadlock a swapped-axes
+ * unit and lock the UI out).
  */
 #include "bsp_guition.h"
 
@@ -38,42 +28,34 @@
 
 static const char *TAG = "bsp_touch";
 
-/* Firmware blob (legacy block format, kept for reference):
- * components/bsp_guition/gsl3680_fw.c — the vendor-record loader below
- * supersedes it. */
-extern const uint8_t gsl3680_fw[];
-extern const size_t  gsl3680_fw_blocks;
-
-/* Vendor firmware records, verbatim from the board's own example driver
- * (esp_lcd_gsl3680.h): {register offset, 32-bit LE value}. */
+/* Vendor firmware records, verbatim from the vendor example driver. */
 extern const struct gsl_fw_rec {
     uint8_t off;
     uint32_t val;
 } gsl_vfw[];
 #define GSL_VFW_CNT 4587
 
-#define GSL_FW_BLOCK       132           /* 4 header + 128 data bytes */
 #define GSL_REG_DATA       0x80
 #define GSL_DATA_LEN       44
 #define GSL_MAX_FINGERS    3
 
-/* GS L36xx touch is not calibrated here: coordinates map 1:1 (vendor
- * parity) — the model-specific raw windows below are no longer needed. */
+/* ESPHome model calibration for this board — hardware-validated. */
+#define GSL_RAW_X_MIN      20
+#define GSL_RAW_X_MAX      880
+#define GSL_RAW_Y_MIN      20
+#define GSL_RAW_Y_MAX      1648
 
 static i2c_master_dev_handle_t s_dev;
 
-/* Calibration helpers live below; bsp_touch_init() runs them at boot. */
-static void cal_load(void);
-
-/* Diagnostic counters (console `touch` command). */
+/* Diagnostic counters (console `touch` probe). */
 static uint32_t s_taps, s_no_touch, s_i2c_err;
-static int      s_boot_attempts;      /* bring-up retries for the diag   */
-static bool     s_boot_verified;      /* last 0xb0 == 5A x4 result       */
+static int      s_boot_attempts;
+static bool     s_boot_verified;
 
 static esp_err_t gsl_write(uint8_t reg, const uint8_t *data, size_t len)
 {
-    uint8_t buf[1 + GSL_FW_BLOCK];
-    if (len > sizeof(buf) - 1) {
+    uint8_t buf[1 + 4];
+    if (len > 4) {
         return ESP_ERR_INVALID_SIZE;
     }
     buf[0] = reg;
@@ -95,8 +77,6 @@ static esp_err_t gsl_read(uint8_t reg, uint8_t *data, size_t len)
 
 /* ---- vendor bring-up steps (esp_lcd_gsl3680.c parity) -------------------- */
 
-/* Vendor clear_reg — note 0xe0=0x88 FIRST (this is what our previous
- * build missed: only 0x88=0x01 had been written). */
 static esp_err_t v_clear_reg(void)
 {
     ESP_RETURN_ON_ERROR(gsl_write8(0xe0, 0x88), TAG, "e0=88");
@@ -110,7 +90,6 @@ static esp_err_t v_clear_reg(void)
     return ESP_OK;
 }
 
-/* Vendor reset — LONG GPIO pulses (20 ms) + the three register writes. */
 static esp_err_t v_reset(void)
 {
     gpio_set_level(BSP_TOUCH_RST_GPIO, 0);
@@ -128,8 +107,8 @@ static esp_err_t v_reset(void)
     return ESP_OK;
 }
 
-/* Verbatim vendor load: one I2C write per record, exactly as the vendor
- * driver does (1 byte for the 0xf0 marker, 4-byte LE elsewhere). */
+/* Verbatim vendor load: one I2C write per record (1 byte for the 0xf0
+ * marker, 4-byte LE elsewhere). */
 static esp_err_t v_load_fw(void)
 {
     for (size_t i = 0; i < GSL_VFW_CNT; i++) {
@@ -176,7 +155,7 @@ static esp_err_t v_bring_up_once(void)
     ESP_RETURN_ON_ERROR(v_startup(),   TAG, "startup");
     ESP_RETURN_ON_ERROR(v_reset(),     TAG, "reset2");
     ESP_RETURN_ON_ERROR(v_startup(),   TAG, "startup2");
-    vTaskDelay(pdMS_TO_TICKS(30));     /* vendor read-delay before verify */
+    vTaskDelay(pdMS_TO_TICKS(30));
     return v_verify();
 }
 
@@ -192,8 +171,7 @@ esp_err_t bsp_touch_init(void)
     ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(bsp_i2c_bus(), &dev_cfg, &s_dev),
                         TAG, "add touch device");
 
-    /* RST + INT outputs; INT held LOW through the reset latch (pin phase
-     * from the vendor driver: address latch + wake-up state).            */
+    /* RST + INT outputs; INT held LOW through the reset latch (vendor) */
     gpio_config_t out_cfg = {
         .pin_bit_mask = (1ULL << BSP_TOUCH_RST_GPIO) | (1ULL << BSP_TOUCH_INT_GPIO),
         .mode = GPIO_MODE_OUTPUT,
@@ -207,7 +185,6 @@ esp_err_t bsp_touch_init(void)
     vTaskDelay(pdMS_TO_TICKS(10));
     vTaskDelay(pdMS_TO_TICKS(50));
 
-    /* Full vendor bring-up, up to three verified attempts.                */
     esp_err_t err = ESP_FAIL;
     for (s_boot_attempts = 1; s_boot_attempts <= 3; s_boot_attempts++) {
         err = v_bring_up_once();
@@ -219,7 +196,7 @@ esp_err_t bsp_touch_init(void)
         }
     }
 
-    /* INT back to input once the chip is up (kept neutral thereafter).    */
+    /* INT back to input once the chip is up. */
     gpio_config_t in_cfg = {
         .pin_bit_mask = 1ULL << BSP_TOUCH_INT_GPIO,
         .mode = GPIO_MODE_INPUT,
@@ -230,145 +207,46 @@ esp_err_t bsp_touch_init(void)
         ESP_LOGE(TAG, "touch bring-up failed after %d attempts", s_boot_attempts);
         return ESP_FAIL;
     }
-    cal_load();
     return ESP_OK;
 }
 
-/* ---------------- touch reads + 4-corner self calibration ------------------
- * The GSL reports panel-pixel coordinates, but each unit's axis direction is
- * only knowable in the field. Instead of hard-coding a transform, the panel
- * self-calibrates: four corner touches, a linear map raw->screen, stored in
- * NVS. All mapped reads go through j_touch_map(); bsp_touch_raw() exposes
- * the untransformed values for the calibration screen itself.               */
-#include "nvs_flash.h"
-#include "nvs.h"
+/* ---- touch reads ----------------------------------------------------------
+ * ESPHome model config: raw axes are SWAPPED on this unit, native ranges
+ * ~20..880 x ~20..1648 -> scale to 800x1280, then mirror X. Hardware-
+ * validated mapping; nothing else has ever produced sane coordinates.    */
 
-#define CAL_NS "touch"
-
-typedef struct {
-    bool     ok;
-    uint16_t rx[4], ry[4];      /* raw points at the 4 calibrated corners   */
-} touch_cal_t;
-
-static touch_cal_t s_cal;
-static bool        s_cal_mode;   /* calibration collection in progress     */
-static bool        s_cal_dirty;
-
-static void cal_load(void)
+static void map_touch(uint16_t raw_x, uint16_t raw_y,
+                      uint16_t *sx, uint16_t *sy)
 {
-    memset(&s_cal, 0, sizeof(s_cal));
-    nvs_handle_t h;
-    if (nvs_open(CAL_NS, NVS_READONLY, &h) == ESP_OK) {
-        size_t sz = sizeof(s_cal);
-        if (nvs_get_blob(h, "cal", &s_cal, &sz) != ESP_OK) {
-            s_cal.ok = false;
-        }
-        nvs_close(h);
-    }
-    /* sanity: the stored corners must be spread out, or recalibrate */
-    if (s_cal.ok) {
-        int dx = s_cal.rx[2] - s_cal.rx[0];
-        int dy = s_cal.ry[2] - s_cal.ry[0];
-        if (abs(dx) < 400 || abs(dy) < 500) {
-            s_cal.ok = false;
-        }
-    }
+    uint16_t x = raw_y;
+    uint16_t y = raw_x;
+
+    if (x < GSL_RAW_X_MIN) x = GSL_RAW_X_MIN;
+    if (x > GSL_RAW_X_MAX) x = GSL_RAW_X_MAX;
+    if (y < GSL_RAW_Y_MIN) y = GSL_RAW_Y_MIN;
+    if (y > GSL_RAW_Y_MAX) y = GSL_RAW_Y_MAX;
+
+    uint32_t dx = (uint32_t)(x - GSL_RAW_X_MIN) * BSP_LCD_H_RES
+                  / (GSL_RAW_X_MAX - GSL_RAW_X_MIN);
+    uint32_t dy = (uint32_t)(y - GSL_RAW_Y_MIN) * BSP_LCD_V_RES
+                  / (GSL_RAW_Y_MAX - GSL_RAW_Y_MIN);
+
+    if (dx >= BSP_LCD_H_RES) dx = BSP_LCD_H_RES - 1;
+    if (dy >= BSP_LCD_V_RES) dy = BSP_LCD_V_RES - 1;
+
+    *sx = (uint16_t)(BSP_LCD_H_RES - 1 - dx);
+    *sy = (uint16_t)dy;
 }
 
-static void cal_save(void)
+static bool touch_fetch(uint16_t *rx, uint16_t *ry)
 {
-    nvs_handle_t h;
-    if (nvs_open(CAL_NS, NVS_READWRITE, &h) == ESP_OK) {
-        nvs_set_blob(h, "cal", &s_cal, sizeof(s_cal));
-        nvs_commit(h);
-        nvs_close(h);
-    }
-}
-
-void bsp_touch_calibration_reset(void)
-{
-    s_cal.ok = false;
-    cal_save();
-}
-
-void bsp_touch_calibration_enable(void)   /* UI collects 4 raw corners */
-{
-    s_cal_mode = true;
-}
-
-void bsp_touch_calibration_disable(void)
-{
-    s_cal_mode = false;
-}
-
-bool bsp_touch_calibrated(void)
-{
-    return s_cal.ok;
-}
-
-/* Feed one raw corner sample; returns true when all 4 are in and stored. */
-bool bsp_touch_calibration_sample(int corner, uint16_t rx, uint16_t ry)
-{
-    if (corner < 0 || corner > 3) {
-        return false;
-    }
-    s_cal.rx[corner] = rx;
-    s_cal.ry[corner] = ry;
-    /* corners: 0 TL, 1 TR, 2 BR, 3 BL — enough for a per-axis linear map */
-    int dx01 = s_cal.rx[1] - s_cal.rx[0];
-    int dx32 = s_cal.rx[2] - s_cal.rx[3];
-    int est_x = (abs(dx01) + abs(dx32)) / 2;
-    if (est_x < 400) {
-        return false;
-    }
-    int dy03 = s_cal.ry[3] - s_cal.ry[0];
-    int dy12 = s_cal.ry[2] - s_cal.ry[1];
-    int est_y = (abs(dy03) + abs(dy12)) / 2;
-    if (est_y < 500) {
-        return false;
-    }
-    s_cal.ok = true;
-    cal_save();
-    return true;
-}
-
-/* raw -> screen, averaged from both diagonals (TL = raw[0], TR = [1],
- * BR = [2], BL = [3]); targets are screen corners with an inset margin. */
-static void cal_map(uint16_t rx, uint16_t ry, uint16_t *sx, uint16_t *sy)
-{
-    const int M = 20;                    /* calibration target inset      */
-    int w = BSP_LCD_H_RES - 1 - 2 * M;
-    int h = BSP_LCD_V_RES - 1 - 2 * M;
-
-    /* left edge average vs right edge average */
-    int lxr = (s_cal.rx[0] + s_cal.rx[3]) / 2;
-    int rxr = (s_cal.rx[1] + s_cal.rx[2]) / 2;
-    int t_yr = (s_cal.ry[0] + s_cal.ry[1]) / 2;
-    int b_yr = (s_cal.ry[2] + s_cal.ry[3]) / 2;
-
-    int x = M, y = M;
-    if (rxr != lxr) {
-        x = M + ((int)rx - lxr) * w / (rxr - lxr);
-    }
-    if (b_yr != t_yr) {
-        y = M + ((int)ry - t_yr) * h / (b_yr - t_yr);
-    }
-    if (x < 0)    x = 0;
-    if (x > BSP_LCD_H_RES - 1) x = BSP_LCD_H_RES - 1;
-    if (y < 0)    y = 0;
-    if (y > BSP_LCD_V_RES - 1) y = BSP_LCD_V_RES - 1;
-    *sx = (uint16_t)x;
-    *sy = (uint16_t)y;
-}
-
-bool bsp_touch_raw(uint16_t *rx, uint16_t *ry)
-{
-    if (!rx || !ry || !s_dev) {
+    if (!s_dev) {
         return false;
     }
     uint8_t reg = GSL_REG_DATA;
     uint8_t buf[GSL_DATA_LEN];
-    if (i2c_master_transmit_receive(s_dev, &reg, 1, buf, sizeof(buf), 100) != ESP_OK) {
+    if (i2c_master_transmit_receive(s_dev, &reg, 1, buf, sizeof(buf), 100)
+        != ESP_OK) {
         s_i2c_err++;
         return false;
     }
@@ -386,45 +264,42 @@ bool bsp_touch_raw(uint16_t *rx, uint16_t *ry)
 bool bsp_touch_read(bsp_touch_point_t *pt)
 {
     uint16_t rx, ry;
-    if (!pt || !bsp_touch_raw(&rx, &ry)) {
+    if (!pt || !touch_fetch(&rx, &ry)) {
         if (pt) {
             pt->pressed = false;
         }
         return false;
     }
-    if (s_cal_mode || !s_cal.ok) {
-        /* calibration collector (or uncalibrated board): RAW coordinates */
-        pt->pressed = true;
-        pt->x = rx;
-        pt->y = ry;
-        return true;
-    }
     uint16_t sx, sy;
-    cal_map(rx, ry, &sx, &sy);
+    map_touch(rx, ry, &sx, &sy);
     pt->pressed = true;
     pt->x = sx;
     pt->y = sy;
     return true;
 }
 
-/* On-demand probe from the serial console (`touch` command): counters plus
- * a raw 44-byte data capture, plus the current 0xf0 and 0xb0 windows so a
- * stuck chip shows up as data instead of silence.                   */
 void bsp_touch_diag(void)
 {
     if (!s_dev) {
         ESP_LOGW(TAG, "diag: touch device not initialised");
         return;
     }
-    uint8_t reg = GSL_REG_DATA;
-    uint8_t buf[GSL_DATA_LEN];
-    esp_err_t e = gsl_read(reg, buf, sizeof(buf));
+    uint16_t rx = 0, ry = 0;
+    bool have = touch_fetch(&rx, &ry);
     ESP_LOGW(TAG, "diag: read=%s taps=%u no_touch=%u i2c_err=%u "
                   "boot tries=%d 0xb0=%s",
-             esp_err_to_name(e), s_taps, s_no_touch, s_i2c_err,
+             have ? "ESP_OK" : "no-touch", s_taps, s_no_touch, s_i2c_err,
              s_boot_attempts, s_boot_verified ? "5a-ok" : "not-ok");
-    if (e == ESP_OK) {
-        ESP_LOG_BUFFER_HEX_LEVEL(TAG, buf, sizeof(buf), ESP_LOG_WARN);
+    if (have) {
+        ESP_LOGW(TAG, "last raw raw_x=%u raw_y=%u", rx, ry);
+    } else if (s_dev) {
+        /* one raw capture anyway (44 bytes) for the log */
+        uint8_t reg = GSL_REG_DATA;
+        uint8_t buf[GSL_DATA_LEN];
+        esp_err_t e = gsl_read(reg, buf, sizeof(buf));
+        if (e == ESP_OK) {
+            ESP_LOG_BUFFER_HEX_LEVEL(TAG, buf, sizeof(buf), ESP_LOG_WARN);
+        }
     }
     uint8_t f0[4] = { 0, 0, 0, 0 };
     if (gsl_read(0xf0, f0, sizeof(f0)) == ESP_OK) {

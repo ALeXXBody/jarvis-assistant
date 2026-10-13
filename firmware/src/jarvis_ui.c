@@ -529,7 +529,6 @@ static void draw_wave_ring(uint16_t *fb, int cx, int cy, float base,
 #define KBD_ROW_STEP  (KBD_KEY_H + 6)
 
 static volatile bool s_set_open;
-static int           s_cal_stage = -1;   /* >=0: corner walkthrough active  */
 static int           s_field;          /* 0 = wifi password, 1 = brain url */
 static char          s_pass[65];
 static char          s_url[161];
@@ -832,11 +831,6 @@ static void open_settings(void)
     strlcpy(s_url, c->server_url, sizeof(s_url));
     s_field = 0;
     start_scan();
-    if (!bsp_touch_calibrated()) {
-        /* first ever setup: walk the four corners first */
-        s_cal_stage = 0;
-        bsp_touch_calibration_enable();
-    }
 }
 
 static void main_tap(uint16_t px, uint16_t py)
@@ -850,61 +844,8 @@ static void main_tap(uint16_t px, uint16_t py)
     jarvis_turn_toggle();
 }
 
-/* ---- touch calibration walkthrough: one cross per corner ------------------ */
-
-static const struct { int x, y; const char *side; } cal_targets[4] = {
-    { 40, 40,   "TOP LEFT" },
-    { SCR_W - 40, 40,   "TOP RIGHT" },
-    { SCR_W - 40, SCR_H - 100, "BOTTOM RIGHT" },
-    { 40, SCR_H - 100, "BOTTOM LEFT" },
-};
-
-static void draw_calib(uint16_t *fb, int stage)
-{
-    /* big centred instructions + a crosshair at the active corner */
-    draw_label_centered_aa(fb, 120, "touch setup", C_IDLE, 2, 10);
-    draw_label_centered_aa(fb, 300, "tap the target", C_TEXT_HI, 1, 6);
-    draw_label_centered_aa(fb, 360, cal_targets[stage].side, C_IDLE, 2, 6);
-    draw_label_centered_aa(fb, 640, "then tap the screen inside it",
-                           C_TEXT_DIM, 0, 2);
-
-    /* faint outline of all four targets */
-    for (int i = 0; i < 4; i++) {
-        uint16_t c = (i < stage) ? C_SPEAK : C_HAIR;
-        fill_thin(fb, cal_targets[i].x - 40, cal_targets[i].y - 40,
-                  cal_targets[i].x + 40, cal_targets[i].y + 40, c);
-        fill_thin(fb, cal_targets[i].x - 40, cal_targets[i].y - 40,
-                  cal_targets[i].x + 40, cal_targets[i].y - 38, c);
-        fill_thin(fb, cal_targets[i].x - 40, cal_targets[i].y + 38,
-                  cal_targets[i].x + 40, cal_targets[i].y + 40, c);
-        fill_thin(fb, cal_targets[i].x - 40, cal_targets[i].y - 40,
-                  cal_targets[i].x - 38, cal_targets[i].y + 40, c);
-        fill_thin(fb, cal_targets[i].x + 38, cal_targets[i].y - 40,
-                  cal_targets[i].x + 40, cal_targets[i].y + 40, c);
-    }
-
-    const int tx = cal_targets[stage].x, ty = cal_targets[stage].y;
-    fill_thin(fb, tx - 60, ty - 2, tx + 60, ty + 2, C_THINK);
-    fill_thin(fb, tx - 2, ty - 60, tx + 2, ty + 60, C_THINK);
-}
-
-static void calib_tap(uint16_t px, uint16_t py)
-{
-    if (bsp_touch_calibration_sample(s_cal_stage, px, py)) {
-        bsp_touch_calibration_disable();
-        s_cal_stage = -1;
-        set_msg("touch calibrated");
-        return;
-    }
-    s_cal_stage = (s_cal_stage + 1) % 4;   /* resample the same corner        */
-}
-
 void jarvis_ui_tap(uint16_t x, uint16_t y)
 {
-    if (s_cal_stage >= 0) {
-        calib_tap(x, y);
-        return;
-    }
     if (s_set_open) {
         settings_tap(x, y);
         return;
@@ -930,15 +871,6 @@ static void ui_task(void *arg)
         uint16_t *fb = bsp_display_framebuffer();
         if (fb) {
             jarvis_state_copy(&snap);
-
-            if (s_cal_stage >= 0) {
-                fill_rect(fb, 0, 0, SCR_W, SCR_H, C_BG);
-                draw_calib(fb, s_cal_stage);
-                bsp_display_flush(0, 0, SCR_W, SCR_H);
-                t += 1.0f / JARVIS_UI_FPS;
-                vTaskDelay(pdMS_TO_TICKS(1000 / JARVIS_UI_FPS));
-                continue;
-            }
 
             if (s_set_open) {
                 /* settings sheet gets the whole frame */
