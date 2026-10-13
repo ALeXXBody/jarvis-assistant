@@ -49,9 +49,9 @@ Open: vertical white lines were reported on an early build and not re-checked.
 
 - Bring-up: vendor sequence (clear, reset, load 4587 firmware records, startup)
   with the 0xB0 == 5A5A5A5A verify. Verified on the panel.
-- Coordinates: X follows the chip's raw axis with no flip (verified from corner
-  taps). Y is flipped (`sy = V-1-dy`), added after the corner test showed top
-  taps registering at the bottom. **Not yet verified on the panel.**
+- Coordinates: X follows the chip's raw axis with no flip; Y is flipped
+  (`sy = V-1-dy`). **Field-confirmed on the panel** — corner and edge taps land
+  directly under the finger across the full 800x1280 area.
 - The tap log prints mapped and raw values: `tap at X,Y (raw RX,RY)`.
 
 ## Audio — ES8311 (7_CODEC.png)
@@ -68,11 +68,31 @@ Open: vertical white lines were reported on an early build and not re-checked.
   (without them the Wi-Fi API is a stub that returns ESP_ERR_NOT_SUPPORTED).
 - Verified on the panel: station joins a 2.4 GHz WPA2 network and gets an IP.
 
+## Settings persistence across updates
+
+- Runtime settings (Wi-Fi SSID/pass, brain URL, OTA URL, volume) live in the
+  `jarvis` NVS namespace inside the `nvs` partition (`0xa000`-`0x10000`).
+- On-device OTA (`esp_https_ota`) writes only the inactive app slot, so NVS is
+  never touched — settings already survive an over-the-air update.
+- The browser installer now offers two paths:
+  - **fresh install** — the merged `firmware.factory.bin` at offset 0, which
+    erases the whole chip (including NVS);
+  - **update** — `bootloader.bin` / `partitions.bin` / `ota_data_initial.bin` /
+    `firmware.bin` written at `0x2000` / `0x9000` / `0x10000` / `0x20000`,
+    which never overlaps the NVS region, so settings are preserved.
+
 ## Status of open items
 
-1. Running firmware version and update result — unknown until a console is
-   attached after a flash.
-2. Microphone level — unknown until a voice turn is logged.
-3. Touch Y-flip — unverified on the panel.
-4. The brain connection works (`ws://192.0.2.10:8765/ws`), but the bridge
-   answered `No transcript detected` for the test turns.
+1. Running firmware version — reported on the setup sheet and in the 10 s boot
+   report; the panel was on v0.1.6 at audit time (user-confirmed).
+2. Microphone level — the ES8311 input gain is now 24 dB
+   (`BSP_AUDIO_MIC_GAIN_DB`); awaiting a user-reported `mic level rms=...` line
+   from a live turn.
+3. Touch — verified on the panel (see above).
+4. The brain link works (`ws://192.0.2.10:8765/ws`); the bridge answered
+   `No transcript detected` for the early test turns — a bridge-side item the
+   user is handling.
+5. ESP-Hosted logs `host=3.0.9 ↔ coprocessor=2.3.2` and a major-version
+   advisory. It is **non-fatal** (the compat check only logs; Wi-Fi works). No
+   registry host release matches 2.3.2 and the 2.x host line does not build
+   against this project's build glue, so it is left as-is pending a decision.
