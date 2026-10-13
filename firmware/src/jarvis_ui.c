@@ -580,7 +580,7 @@ static void start_scan(void)
     }
     s_apcnt = 0;
     s_scanning = true;   /* catch the beat before the task even runs */
-    if (xTaskCreatePinnedToCore(scan_task, "ui_scan", 4096, NULL, 3, NULL, 1)
+    if (xTaskCreatePinnedToCore(scan_task, "ui_scan", 8192, NULL, 3, NULL, 1)
         != pdPASS) {
         s_scanning = false;
         set_msg("scan: no task slots");

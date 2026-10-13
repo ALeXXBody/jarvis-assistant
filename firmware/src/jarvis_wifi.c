@@ -251,7 +251,9 @@ esp_err_t jarvis_wifi_scan(jarvis_wifi_ap_t *out, size_t *cnt, size_t max)
         n = 64;    /* bounded; our UI lists up to 8, keep memory sane */
     }
 
-    wifi_ap_record_t recs[64];
+    /* static, not stack: 64 records are ~6 KB and the scan runs in a task
+     * with a small stack (a stack overflow here rebooted the panel).      */
+    static wifi_ap_record_t recs[64];
     esp_wifi_scan_get_ap_records(&n, recs);    /* frees the scan memory  */
 
     /* by RSSI (api returns sorted? not guaranteed on remote) — insertion sort */
