@@ -32,7 +32,7 @@ static void touch_task(void *arg)
 
         if (now && !was && (t - last) > pdMS_TO_TICKS(JARVIS_TAP_DEBOUNCE_MS)) {
             last = t;
-            ESP_LOGI(TAG, "tap at %u,%u", pt.x, pt.y);
+            ESP_LOGI(TAG, "tap at %u,%u (raw %u,%u)", pt.x, pt.y, pt.raw_x, pt.raw_y);
             /* the UI owns all on-panel interaction: settings gear, settings
              * screen, or turn trigger — nothing needs a desktop            */
             jarvis_ui_tap(pt.x, pt.y);
@@ -164,13 +164,6 @@ static void console_exec(char *line)
         return;
     }
 
-    if (!strcmp(cmd, "orient")) {
-        bsp_touch_orient_reset();
-        jarvis_state_status("touch axes: open the settings screen");
-        ESP_LOGI(TAG, "touch axis wizard will run again on next settings open");
-        return;
-    }
-
     if (!strcmp(cmd, "cfg")) {
         cfg_show();
         return;
@@ -184,7 +177,7 @@ static void console_exec(char *line)
     if (!strcmp(cmd, "help")) {
         ESP_LOGI(TAG, "console: l/s/x/a/d = turn ctrl | r reconnect | u update"
                       " | +/- vol | w <ssid> <pass> | srv <url> [conv]"
-                      " | cfg | state | touch | orient | help");
+                      " | cfg | state | touch | help");
         return;
     }
 

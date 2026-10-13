@@ -530,11 +530,6 @@ static void draw_wave_ring(uint16_t *fb, int cx, int cy, float base,
 
 static volatile bool s_set_open;
 
-/* Axis wizard: the panel shows what IT registered, the user confirms the
- * truth; signs get stored in NVS. Stages: 1 = vertical, 2 = horizontal.  */
-static int        s_owiz;          /* 0 none, 1..2 active                */
-static const char*s_owiz_saw;      /* what the panel registered          */
-static uint16_t   s_owiz_x, s_owiz_y;
 static int           s_field;          /* 0 = wifi password, 1 = brain url */
 static char          s_pass[65];
 static char          s_url[161];
@@ -544,7 +539,6 @@ static size_t          s_apcnt;
 static volatile bool  s_scanning;
 static int            s_sel = -1;       /* selected scan index              */
 static const char    *s_set_msg;
-static bool           s_owiz_keep_ox, s_owiz_keep_oy_dummy;
 static TickType_t     s_set_msg_until;
 
 static void set_msg(const char *m)
@@ -847,11 +841,6 @@ static void settings_tap(uint16_t px, uint16_t py)
 
 static void open_settings(void)
 {
-    if (!bsp_touch_orient_done()) {
-        s_owiz = 1;              /* vertical axis first                */
-        bsp_touch_get_orient(&s_owiz_keep_ox, &s_owiz_keep_oy_dummy);
-        return;
-    }
     s_set_open = true;
     s_sel = -1;
     const jarvis_settings_t *c = jarvis_settings();
@@ -874,91 +863,8 @@ static void main_tap(uint16_t px, uint16_t py)
 
 /* ------------------------------------------------------- axis wizard ----- */
 
-static void draw_owizard(uint16_t *fb)
-{
-    fill_thin(fb, 0, 118, SCR_W, 119, C_HAIR);
-    draw_label_centered_aa(fb, 40, "touch axis setup", C_IDLE, 2, 10);
-
-    if (s_owiz_saw == NULL) {
-        draw_label_centered_aa(fb, 240, "tap any point on the screen",
-                               C_TEXT_HI, 1, 6);
-        draw_label_centered_aa(fb, 310, "(wherever you like)", C_TEXT_DIM, 0, 4);
-        return;
-    }
-
-    char saw[64];
-    snprintf(saw, sizeof(saw), "the panel registered:  %s",
-             s_owiz_saw);
-    draw_label_centered_aa(fb, 250, saw, C_TEXT_HI, 1, 2);
-
-    if (s_owiz == 1) {
-        draw_label_centered_aa(fb, 330, "where did you touch ?", C_TEXT_HI, 1, 4);
-        draw_button(fb, 60, 420, 380, 500, C_HAIR, C_IDLE, "TOP");
-        draw_button(fb, 420, 420, 740, 500, C_HAIR, C_IDLE, "BOTTOM");
-    } else {
-        draw_label_centered_aa(fb, 330, "where did you touch ?", C_TEXT_HI, 1, 4);
-        draw_button(fb, 60, 420, 380, 500, C_HAIR, C_IDLE, "LEFT");
-        draw_button(fb, 420, 420, 740, 500, C_HAIR, C_IDLE, "RIGHT");
-    }
-    draw_label_centered_aa(fb, 560,
-                           "your answer defines the touch axes",
-                           C_TEXT_DIM, 0, 2);
-}
-
-/* helpers: compare what the panel saw with where the finger really was */
-static void oyy_setsaw(bool saw_top, bool touched_top)
-{
-    bsp_touch_set_orient(s_owiz_keep_ox, saw_top != touched_top);
-    s_owiz = 2;              /* horizontal axis next */
-    s_owiz_saw = NULL;
-}
-
-static void oxx_setsaw(bool saw_left, bool touched_left)
-{
-    bsp_touch_set_orient(saw_left != touched_left, s_owiz_keep_oy_dummy);
-    bsp_touch_get_orient(&s_owiz_keep_ox, &s_owiz_keep_oy_dummy);
-    s_owiz = 0;
-    s_owiz_saw = NULL;
-    s_set_open = true;       /* wizard finished - straight to the sheet   */
-    start_scan();
-}
-
-static void owizard_tap(uint16_t x, uint16_t y)
-{
-    if (s_owiz_saw == NULL) {
-        /* record what the panel saw with the CURRENT signs */
-        if (s_owiz == 1) {
-            s_owiz_saw = (y < SCR_H / 2) ? "TOP" : "BOTTOM";
-        } else {
-            s_owiz_saw = (x < SCR_W / 2) ? "LEFT" : "RIGHT";
-        }
-        s_owiz_x = x;
-        s_owiz_y = y;
-        return;
-    }
-
-    /* user tells the truth; the panel adjusts its stored sign accordingly */
-    bool ox, oy;
-    bsp_touch_get_orient(&ox, &oy);
-    if (s_owiz == 1) {
-        /* answer buttons: TOP = left button, BOTTOM = right button */
-        bool touched_top = (x < SCR_W / 2);
-        /* mismatch between registered and truth == need inverted y       */
-        bool saw_top = (s_owiz_y < SCR_H / 2);
-        oyy_setsaw(saw_top, touched_top);   /* helper below */
-    } else {
-        bool touched_left = (x < SCR_W / 2);
-        bool saw_left = (s_owiz_x < SCR_W / 2);
-        oxx_setsaw(saw_left, touched_left); /* helper below */
-    }
-}
-
 void jarvis_ui_tap(uint16_t x, uint16_t y)
 {
-    if (s_owiz) {
-        owizard_tap(x, y);
-        return;
-    }
     if (s_set_open) {
         settings_tap(x, y);
         return;
@@ -984,15 +890,6 @@ static void ui_task(void *arg)
         uint16_t *fb = bsp_display_framebuffer();
         if (fb) {
             jarvis_state_copy(&snap);
-
-            if (s_owiz) {
-                fill_rect(fb, 0, 0, SCR_W, SCR_H, C_BG);
-                draw_owizard(fb);
-                bsp_display_flush(0, 0, SCR_W, SCR_H);
-                t += 1.0f / JARVIS_UI_FPS;
-                vTaskDelay(pdMS_TO_TICKS(1000 / JARVIS_UI_FPS));
-                continue;
-            }
 
             if (s_set_open) {
                 /* settings sheet gets the whole frame */

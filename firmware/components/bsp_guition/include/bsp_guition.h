@@ -72,6 +72,7 @@ typedef struct {
     uint16_t x;
     uint16_t y;
     bool     pressed;
+    uint16_t raw_x, raw_y;   /* controller values before mapping */
 } bsp_touch_point_t;
 
 esp_err_t bsp_touch_init(void);
@@ -80,13 +81,6 @@ bool bsp_touch_read(bsp_touch_point_t *pt);
 /* Serial-console probe: touch counters + one raw GSL data capture. */
 void      bsp_touch_diag(void);
 
-/* ---- user-defined axis orientation (on-screen wizard) --------------------- */
-/* The touch axes are SET BY THE USER on the panel: two quick taps + two
- * answers and the map is stored in NVS. No compiled-in sign guessing. */
-void bsp_touch_get_orient(bool *ox, bool *oy);
-void bsp_touch_set_orient(bool ox, bool oy);
-bool bsp_touch_orient_done(void);
-void bsp_touch_orient_reset(void);
 
 /* ---- 4-corner self-calibration ------------------------------------------- */
 /* The GSL's axis direction is only knowable in the field; the settings
