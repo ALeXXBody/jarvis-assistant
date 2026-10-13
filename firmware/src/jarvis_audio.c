@@ -105,6 +105,7 @@ static void capture_task(void *arg)
 
     uint32_t silence_ms = 0;
     uint32_t elapsed_ms = 0;
+    uint32_t next_level_log_ms = 1000;
     bool speech_seen = false;
 
     while (true) {
@@ -125,6 +126,12 @@ static void capture_task(void *arg)
         jarvis_ws_send_audio((const uint8_t *)frame, (size_t)bytes);
 
         int rms = rms_of(frame, samples);
+        if (elapsed_ms >= next_level_log_ms) {
+            ESP_LOGI(TAG, "mic level rms=%d (speech>=%d, silence<%d) at %u ms",
+                     rms, JARVIS_RMS_SPEECH, JARVIS_RMS_SILENCE,
+                     (unsigned)elapsed_ms);
+            next_level_log_ms += 1000;
+        }
         /* UI feedback: normalised, exponential average (γ≈0.6 per frame). */
         {
             float lv = (float)rms / 3000.0f;      /* ~0.3 → full scale      */
