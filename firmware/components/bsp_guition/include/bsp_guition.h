@@ -43,7 +43,7 @@ extern "C" {
 #define BSP_AUDIO_DIN_GPIO       11         /* codec -> P4 (capture)   */
 #define BSP_AUDIO_PA_GPIO        20         /* speaker amp enable      */
 
-#define BSP_WS2812_GPIO          0          /* reactor LED (verify)    */
+#define BSP_WS2812_GPIO          26         /* WS2812 data — vendor schematic 3_ESP32-P4.png: GPIO26 (pin 55), not GPIO0 as first guessed */
 
 #define BSP_BATTERY_ADC_GPIO     52
 #define BSP_BATTERY_DIVIDER      1.68f

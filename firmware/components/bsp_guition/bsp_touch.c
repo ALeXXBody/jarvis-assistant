@@ -56,11 +56,8 @@ extern const struct gsl_fw_rec {
 #define GSL_DATA_LEN       44
 #define GSL_MAX_FINGERS    3
 
-/* Model-specific calibration (ESPHome GUITION-JC8012P4A1). */
-#define GSL_RAW_X_MIN      20
-#define GSL_RAW_X_MAX      880
-#define GSL_RAW_Y_MIN      20
-#define GSL_RAW_Y_MAX      1648
+/* GS L36xx touch is not calibrated here: coordinates map 1:1 (vendor
+ * parity) — the model-specific raw windows below are no longer needed. */
 
 static i2c_master_dev_handle_t s_dev;
 
@@ -255,29 +252,24 @@ bool bsp_touch_read(bsp_touch_point_t *pt)
     }
     s_taps++;
 
-    /* Finger 0: base = 4. */
+    /* Finger 0: base = 4. Vendor mapping — GSL3680 reports PIXEL
+     * coordinates natively on this panel (their demo relies on it:
+     * no swap, no scaling; library mirror_x/mirror_y with the app
+     * mirroring x again ⇒ net effect: x stays raw, y is mirrored). */
     uint16_t raw_x = (uint16_t)(((buf[7] & 0x0f) << 8) | buf[6]);
     uint16_t raw_y = (uint16_t)((buf[5] << 8) | buf[4]);
 
-    /* swap_xy (model config) */
-    uint16_t x = raw_y;
-    uint16_t y = raw_x;
+    int x = raw_x;
+    int y = BSP_LCD_V_RES - 1 - raw_y;
 
-    /* clamp to the model's raw window, then scale to panel pixels */
-    if (x < GSL_RAW_X_MIN) x = GSL_RAW_X_MIN;
-    if (x > GSL_RAW_X_MAX) x = GSL_RAW_X_MAX;
-    if (y < GSL_RAW_Y_MIN) y = GSL_RAW_Y_MIN;
-    if (y > GSL_RAW_Y_MAX) y = GSL_RAW_Y_MAX;
+    /* defensive clamp only */
+    if (x < 0) x = 0;
+    if (x >= BSP_LCD_H_RES) x = BSP_LCD_H_RES - 1;
+    if (y < 0) y = 0;
+    if (y >= BSP_LCD_V_RES) y = BSP_LCD_V_RES - 1;
 
-    uint32_t dx = (uint32_t)(x - GSL_RAW_X_MIN) * BSP_LCD_H_RES / (GSL_RAW_X_MAX - GSL_RAW_X_MIN);
-    uint32_t dy = (uint32_t)(y - GSL_RAW_Y_MIN) * BSP_LCD_V_RES / (GSL_RAW_Y_MAX - GSL_RAW_Y_MIN);
-
-    if (dx >= BSP_LCD_H_RES) dx = BSP_LCD_H_RES - 1;
-    if (dy >= BSP_LCD_V_RES) dy = BSP_LCD_V_RES - 1;
-
-    /* mirror_x (model config) */
-    pt->x = (uint16_t)(BSP_LCD_H_RES - 1 - dx);
-    pt->y = (uint16_t)dy;
+    pt->x = (uint16_t)x;
+    pt->y = (uint16_t)y;
     pt->pressed = true;
     return true;
 }
