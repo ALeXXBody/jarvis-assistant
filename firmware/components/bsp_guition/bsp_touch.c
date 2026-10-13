@@ -234,11 +234,11 @@ static void map_touch(uint16_t raw_x, uint16_t raw_y,
     if (dx >= BSP_LCD_H_RES) dx = BSP_LCD_H_RES - 1;
     if (dy >= BSP_LCD_V_RES) dy = BSP_LCD_V_RES - 1;
 
-    /* orientation (field-confirmed on the v0.1.10-era sessions): the X axis
-     * reads correct with a single mirror, the Y axis reads inverted — so
-     * mirror X once and flip Y, nothing more. */
-    *sx = (uint16_t)(BSP_LCD_H_RES - 1 - dx);
-    *sy = (uint16_t)(BSP_LCD_V_RES - 1 - dy);
+    /* orientation — final, from the v0.1.17 field test (x correct, y
+     * inverted on the mirrored variant): plain scaled coordinates, no
+     * mirrors. The measured axes of this panel run in screen direction. */
+    *sx = (uint16_t)dx;
+    *sy = (uint16_t)dy;
 }
 
 static bool touch_fetch(uint16_t *rx, uint16_t *ry)
