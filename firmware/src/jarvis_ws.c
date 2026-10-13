@@ -250,11 +250,15 @@ static void ws_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 /* ------------------------------------------------------------------------- */
 esp_err_t jarvis_ws_start(const char *url)
 {
-    if (s_client) {
-        return ESP_OK;
-    }
     if (!url || !*url) {
         return ESP_ERR_INVALID_ARG;
+    }
+    /* a running client keeps its old URI: replace it so a new brain address
+     * (saved on the setup page) takes effect                               */
+    if (s_client) {
+        esp_websocket_client_stop(s_client);
+        esp_websocket_client_destroy(s_client);
+        s_client = NULL;
     }
 
     esp_websocket_client_config_t cfg = {
