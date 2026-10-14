@@ -28,9 +28,22 @@
 
 static const char *TAG = "wifi";
 
+/* A wrong password used to spin the retry timer every 3 s forever: the
+ * setup-sheet scan then raced the reconnect attempt on the C6 and came back
+ * empty ("no networks found") and the list could not be recovered without
+ * reflashing. The first JOIN_FAST_RETRIES failures re-arm fast so a good
+ * incident (momentary AP drop) self-heals; after that attempts slow down to
+ * one every 45 s, so the radio is mostly idle and scans work. A new
+ * jarvis_wifi_start() call (user retyped the password) or a successful join
+ * resets the counter.                                                    */
+#define JOIN_FAST_RETRIES   5
+#define JOIN_FAST_RETRY_MS  (3000 * 1000)
+#define JOIN_SLOW_RETRY_MS  (45000 * 1000)
+
 static bool s_connected;
 static bool s_started;
 static bool s_want_join;   /* credentials present -> join on STA_START     */
+static int  s_join_fails;  /* consecutive failed join attempts             */
 
 esp_err_t jarvis_net_init(void)
 {
@@ -67,17 +80,19 @@ static esp_netif_t       *s_netif;        /* created once              */
 static bool               s_inited;       /* esp_wifi_init + mode done  */
 static bool               s_handlers;     /* event handlers registered  */
 static esp_timer_handle_t s_retry_timer;  /* reconnect back-off         */
+static bool               s_slowed_logged;/* prevent repeat slow-mode W  */
 
 static void retry_cb(void *arg)
 {
     (void)arg;
+    if (!s_want_join) {
+        return;                        /* scan silenced the join loop */
+    }
     esp_wifi_connect();
 }
 
 static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
-    static int s_streak = 0;
-
     (void)arg;
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
         if (s_want_join) {
@@ -92,23 +107,33 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
         s_connected = false;
         jarvis_state_conn(false, false);
         if (!s_want_join) {
-            return;                       /* nothing configured: stay quiet */
+            return;                       /* scan kick or idle: stay quiet */
         }
-        if (++s_streak <= 3 || (s_streak % 5) == 0) {
-            ESP_LOGW(TAG, "disconnected (%d: %s), retrying", reason,
-                     reason_text(reason));
+        s_join_fails++;
+        TickType_t delay_ms = JOIN_FAST_RETRY_MS;
+        bool slowed = false;
+        if (s_join_fails > JOIN_FAST_RETRIES) {
+            delay_ms = JOIN_SLOW_RETRY_MS;
+            slowed = true;
+        }
+        if (s_join_fails <= 3 || s_join_fails == JOIN_FAST_RETRIES ||
+            slowed != s_slowed_logged) {
+            ESP_LOGW(TAG, "disconnected (%d: %s)%s", reason,
+                     reason_text(reason),
+                     slowed ? " - retrying slowly so scans can run" : "");
+            s_slowed_logged = slowed;
         }
         char buf[64];
         snprintf(buf, sizeof(buf), "wifi: %s", reason_text(reason));
         jarvis_state_error(buf);
         if (reason != WIFI_REASON_AUTH_LEAVE && s_retry_timer) {
             esp_timer_stop(s_retry_timer);            /* ignore "not running" */
-            esp_timer_start_once(s_retry_timer, 3000 * 1000);   /* 3 s later */
+            esp_timer_start_once(s_retry_timer, delay_ms);
         }
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *ev = (ip_event_got_ip_t *)data;
         ESP_LOGI(TAG, "got ip: " IPSTR, IP2STR(&ev->ip_info.ip));
-        s_streak = 0;
+        s_join_fails = 0;
         s_connected = true;
         jarvis_state_conn(true, false);
     }
@@ -182,6 +207,7 @@ esp_err_t jarvis_wifi_start(const char *ssid, const char *pass)
         ssid = "";
     }
     s_want_join = (ssid[0] != '\0');
+    s_join_fails = 0;              /* fresh attempt (user retyped password) */
 
     if (!s_inited) {
         err = wifi_bring_up_once();
@@ -233,9 +259,30 @@ esp_err_t jarvis_wifi_scan(jarvis_wifi_ap_t *out, size_t *cnt, size_t max)
         return ESP_ERR_INVALID_ARG;
     }
 
+    /* A scan against a radio that is mid-handshake (wrong password, or AP
+     * in the middle of dropping us) reliably returns zero APs. Silence the
+     * join loop first so the setup sheet gets a usable list; when the scan
+     * completes the join resumes after 2 s unless the credentials are in
+     * slow mode (then a user action re-arms it from scratch).             */
+    bool resume = s_want_join && !s_connected;
+    if (resume) {
+        s_want_join = false;
+        if (s_retry_timer) {
+            esp_timer_stop(s_retry_timer);
+        }
+        esp_wifi_disconnect();
+    }
+
     wifi_scan_config_t sc = { 0 };
     sc.show_hidden = false;
     esp_err_t err = esp_wifi_scan_start(&sc, true /* block */);
+    if (resume) {
+        s_want_join = true;
+        if (s_retry_timer) {
+            esp_timer_stop(s_retry_timer);
+            esp_timer_start_once(s_retry_timer, 2 * 1000 * 1000);  /* 2 s later */
+        }
+    }
     if (err != ESP_OK && err != ESP_ERR_WIFI_STATE) {
         ESP_LOGW(TAG, "scan: %s", esp_err_to_name(err));
         return err;

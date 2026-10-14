@@ -586,7 +586,11 @@ static void start_scan(void)
     }
     s_apcnt = 0;
     s_scanning = true;   /* catch the beat before the task even runs */
-    if (xTaskCreatePinnedToCore(scan_task, "ui_scan", 8192, NULL, 3, NULL, 1)
+    /* 20 KB stack: the esp_wifi remote scan path (RPC serialization +
+     * esp_wifi_scan_get_ap_records plumbing) overflowed an 8 KB stack twice
+     * with a stack-protection panic right after set_config (panel reboots
+     * during def use of the setup sheet). Cheap insurance here.          */
+    if (xTaskCreatePinnedToCore(scan_task, "ui_scan", 20480, NULL, 3, NULL, 1)
         != pdPASS) {
         s_scanning = false;
         set_msg("scan: no task slots");
