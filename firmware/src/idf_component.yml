@@ -17,13 +17,16 @@ dependencies:
   espressif/esp_websocket_client: "^1.8.0"
   # --- Wi-Fi via the on-board ESP32-C6 (ESP-Hosted over SDIO) ---------------
   # The C6 connects to the P4 over SDIO and runs the vendor slave firmware
-  # (JC-C6-slave, shipped on the board), which reports coprocessor fw 2.3.2 -
-  # the 2.x ESP-Hosted line. The host is pinned to the 2.x line (2.13.0, the
-  # newest 2.x; esp_wifi_remote 1.6 requires >= 2.11) so the host and
-  # coprocessor MAJOR versions match and ESP-Hosted does not log its "major
-  # version mismatch - OTA coprocessor from host" advisory. Requires the
-  # matching CONFIG_ESP_HOSTED_* block in sdkconfig.defaults.
-  espressif/esp_hosted: "2.13.0"
+  # (JC-C6-slave, shipped on the board), which reports coprocessor fw 2.3.2.
+  # The host is pinned to the 3.x line, verified on the panel (station joins,
+  # gets an IP). ESP-Hosted then logs a "major version mismatch - OTA
+  # coprocessor from host" advisory; it only logs and Wi-Fi works.
+  # CAUTION: matching the coprocessor by pinning the host to the 2.x line
+  # (v0.1.9, esp_hosted 2.13.0) killed the radio - the panel reported
+  # "radio unavailable", esp_wifi_init never came up. Do not move this pin
+  # to 2.x. Requires the matching CONFIG_ESP_HOSTED_* block in
+  # sdkconfig.defaults.
+  espressif/esp_hosted: "^3.0.9"
   # Routes the standard esp_wifi_* API to the on-board C6 over ESP-Hosted.
   # Without it CONFIG_ESP_WIFI_REMOTE_ENABLED does not exist and Wi-Fi is
   # compiled out ("radio unavailable" on the setup sheet).

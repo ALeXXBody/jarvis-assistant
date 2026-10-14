@@ -385,7 +385,7 @@ static void draw_top_bar(uint16_t *fb, const jarvis_snapshot_t *s)
 static void draw_bottom_bar(uint16_t *fb, const jarvis_snapshot_t *s)
 {
     fill_thin(fb, 0, 1236, SCR_W, 1237, C_HAIR);
-    draw_text_aa(fb, 32, 1246, JARVIS_FW_VERSION, RGB565(84, 94, 110), 0, 3);
+    draw_text_aa(fb, 32, 1246, jarvis_ota_running_version(), RGB565(84, 94, 110), 0, 3);
     if (s->last_total_seconds > 0.05f) {
         char lat[40];
         snprintf(lat, sizeof(lat), "TURN  %.1f s", s->last_total_seconds);

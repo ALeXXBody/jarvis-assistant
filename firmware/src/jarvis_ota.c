@@ -25,10 +25,25 @@ static const char *TAG = "ota";
 /* Guards s_busy: only one check/flash at a time (console + auto-check). */
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 static bool s_busy;
+static char s_running_ver[32];
 
+/* The OTA needs to know the version of the image that is RUNNING, not a
+ * number a previous build might have stamped - so the version is read from
+ * the image's own app descriptor. release.sh stamps it deterministically
+ * (firmware/version.txt -> PROJECT_VER -> descriptor = the release number).
+ * Dev builds fall back to git describe ("v0.1.7-5-g..."), which is still
+ * truthful; only when the descriptor is empty do we fall back to the
+ * compile-time JARVIS_FW_VERSION macro. Nothing is remembered across
+ * updates - what was on the panel before never matters.                  */
 const char *jarvis_ota_running_version(void)
 {
-    return JARVIS_FW_VERSION;
+    if (!s_running_ver[0]) {
+        const esp_app_desc_t *desc = esp_app_get_description();
+        const char *real = (desc && desc->version[0]) ? desc->version : "";
+        strlcpy(s_running_ver, real[0] ? real : JARVIS_FW_VERSION,
+                sizeof(s_running_ver));
+    }
+    return s_running_ver;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -218,10 +233,8 @@ esp_err_t jarvis_ota_init(void)
         pending = (st == ESP_OTA_IMG_PENDING_VERIFY);
     }
 
-    const esp_app_desc_t *desc = esp_app_get_description();
-    ESP_LOGI(TAG, "running fw=%s app_ver=%s part=%s @0x%08lx %s",
+    ESP_LOGI(TAG, "running fw=%s part=%s @0x%08lx %s",
              jarvis_ota_running_version(),
-             desc ? desc->version : "?",
              run ? run->label : "?",
              (unsigned long)(run ? run->address : 0),
              pending ? "(PENDING VERIFY)" : "");

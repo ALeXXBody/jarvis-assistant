@@ -86,7 +86,7 @@ static void banner(void)
     s_boot.psram = (esp_psram_get_size() >= 1024 * 1024);
 
     ESP_LOGI(TAG, "==================================================");
-    ESP_LOGI(TAG, " J.A.R.V.I.S. satellite  fw %s", JARVIS_FW_VERSION);
+    ESP_LOGI(TAG, " J.A.R.V.I.S. satellite  fw %s", jarvis_ota_running_version());
     ESP_LOGI(TAG, " chip=%d cores=%d rev=%d.%d", info.model, info.cores,
              info.revision / 100, info.revision % 100);
     ESP_LOGI(TAG, " flash=%luMB psram=%luKB",
@@ -106,7 +106,7 @@ static void boot_recap_task(void *arg)
 
     ESP_LOGI(TAG, "---------------- boot report ----------------");
     ESP_LOGI(TAG, " fw=%s  psram=%s  ota=%s",
-             JARVIS_FW_VERSION,
+             jarvis_ota_running_version(),
              s_boot.psram ? "OK" : "MISSING!",
              s_boot.ota ? "OK" : "FAILED");
     ESP_LOGI(TAG, " display=%s  touch=%s  led=%s  battery=%s",

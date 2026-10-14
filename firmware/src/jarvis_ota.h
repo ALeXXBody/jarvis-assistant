@@ -7,8 +7,9 @@
  *     <ota_url>version.txt     plain text, e.g. "0.1.1"
  *     <ota_url>firmware.bin    the application image
  *
- * `<ota_url>version.txt` is compared with the version compiled into the running
- * image (`JARVIS_FW_VERSION`). If the remote is newer, `firmware.bin` is written
+ * `<ota_url>version.txt` is compared with the version of the image that is
+ * actually running (from its app descriptor — see jarvis_ota_running_version).
+ * If the remote is newer, `firmware.bin` is written
  * to the *inactive* OTA slot and the device reboots into it.
  *
  * Rollback safety: with CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE the freshly
@@ -40,5 +41,9 @@ bool jarvis_ota_check_async(void);
  * configured. Returns immediately; work happens in a small task. */
 void jarvis_ota_autocheck_start(void);
 
-/* The version string compiled into this image (JARVIS_FW_VERSION). */
+/* Version of the RUNNING image, read from the image's own app descriptor
+ * (stamped at release time via firmware/version.txt -> PROJECT_VER; falls
+ * back to the compile-time JARVIS_FW_VERSION macro on a bare build). This is
+ * what the OTA check compares against version.txt, and what the UI reports -
+ * the panel never needs to remember what it ran before. */
 const char *jarvis_ota_running_version(void);

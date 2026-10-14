@@ -25,6 +25,11 @@ firmware/sdkconfig
 firmware/sdkconfig.old
 firmware/sdkconfig.jarvis-panel*
 
+# Written by tools/release.sh for the release build only: the build system
+# reads it as PROJECT_VER (the version the image itself reports). Dev builds
+# use git describe instead, which is why it must never be committed.
+firmware/version.txt
+
 # --- Python ---------------------------------------------------------------
 __pycache__/
 *.py[cod]

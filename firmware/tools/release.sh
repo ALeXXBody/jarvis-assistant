@@ -32,11 +32,19 @@ NOTES="${2:-JARVIS panel firmware $VERSION}"
 REPO="${JARVIS_REPO:-ALeXXBody/jarvis-assistant}"
 
 echo ">> building firmware $VER_NUM"
-# PlatformIO parses PLATFORMIO_BUILD_FLAGS with shlex, which strips plain
+# PLATFORMIO parses PLATFORMIO_BUILD_FLAGS with shlex, which strips plain
 # quotes — the inner \" must stay literal so the macro is a *string*, not a
 # number. (${x:-} keeps any flags you already had.)
+#
+# The version the panel actually reports (OTA check, setup sheet, bottom bar)
+# comes from the built image's app descriptor. IDF picks that up from
+# firmware/version.txt (kept out of the repo -.gitignore-), so a release
+# image carries exactly "$VER_NUM"; dev builds fall back to git describe and
+# release.sh removes the file afterwards so they stay truthful.
+printf '%s\n' "$VER_NUM" > version.txt
 PLATFORMIO_BUILD_FLAGS="${PLATFORMIO_BUILD_FLAGS:-} -D JARVIS_FW_VERSION=\\\"$VER_NUM\\\"" \
     pio run -e jarvis-panel
+rm -f version.txt
 
 BUILD=.pio/build/jarvis-panel
 mkdir -p dist
