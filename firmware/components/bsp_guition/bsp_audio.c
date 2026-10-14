@@ -47,6 +47,11 @@ esp_err_t bsp_audio_init(void)
         I2S_CHANNEL_DEFAULT_CONFIG((i2s_port_t)JARVIS_AUDIO_I2S_PORT, I2S_ROLE_MASTER);
     chan_cfg.dma_desc_num = BSP_AUDIO_I2S_DMA_DESC;
     chan_cfg.dma_frame_num = 240;
+    /* TX underflow = zero the ring instead of replaying it. With the default
+     * (auto_clear = false) the last few frames loop until fresh data arrives,
+     * which was audible as a repeating stutter between TTS chunks and after
+     * the spoken ack ("something is looping" on the panel).             */
+    chan_cfg.auto_clear = true;
     ESP_RETURN_ON_ERROR(i2s_new_channel(&chan_cfg, &s_tx, &s_rx), TAG, "i2s_new_channel");
 
     i2s_std_config_t std_cfg = {
