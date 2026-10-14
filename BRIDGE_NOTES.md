@@ -38,6 +38,41 @@ Test harness: `/opt/jarvis/jarvis_ai/server/scripts/ws_e2e_test.py <16k-mono.wav
 - First turn after idle: ~23 s tail prefill. Tool loops (agentic turns): 60–120 s — tuning lever for later
   (fast small model for voice, big model escalation, or real Home Assistant toolset).
 
+## Streaming & spoken-ack tuning (this repo's `bridge/server.py`)
+
+Two knobs shape how a reply reaches the ear. Both are in `config/server.yaml`
+(`voice:` / `hermes:` blocks) and both degrade to the old behaviour if unset.
+
+- **`voice.min_chunk_chars`** (default `60`) — the reply is synthesized in
+  clauses, not whole sentences. A chunk always ends at `.!?`; it may also end at
+  `,;:` once it has reached this many characters. This is what makes the first
+  words audible sooner: an agent sentence can run to 300 characters, and waiting
+  for its full stop costs a second of silence before any audio. Every chunk pays
+  Piper's startup, so going much below ~40 makes the reply choppy and no faster
+  overall. `0` restores full-sentence-only splitting.
+- **`hermes.ack_after_seconds`** (default `0` = off) + **`ack_texts`** — if no
+  reply sentence has started synthesizing after this many seconds, speak the next
+  ack text as filler (rotating through the list across turns). The ack is
+  cancelled the moment the real reply is ready, and skipped entirely when the
+  agent answers quickly, so a snappy turn is never prefixed with filler. Useful
+  range is ~1.5–2.5 s. The ack's audio is written under `conn.tts_lock` and the
+  sentence loop waits on that lock, so the two PCM streams never interleave
+  (two overlapping streams arrive as noise, not two voices). Ack metrics are
+  kept out of the turn's latency numbers.
+
+The chunker and ack task have stdlib-only tests — run them anywhere the repo is
+checked out, no venv or models needed:
+
+```
+python3 bridge/tests/test_chunker.py
+python3 bridge/tests/test_ack.py
+```
+
+**Deploying:** the live host runs a *copy* at
+`/opt/jarvis/jarvis_ai/server/server.py` with its own
+`config/server.yaml`. Copy both files across (or re-apply the two knobs by hand)
+and restart `jarvis-voice`; the ack stays off until `ack_after_seconds > 0`.
+
 ## Restart order / recovery
 
 1. `systemctl start ollama` → wait for `ollama ps` (gpt-oss loaded).

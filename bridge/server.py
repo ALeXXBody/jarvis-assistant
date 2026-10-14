@@ -97,7 +97,13 @@ def read_usage() -> dict:
             data = {"total": {}, "days": {}}
     return {"total": data.get("total", {}), "today": data.get("days", {}).get(_today(), {})}
 ENV_PATHS = [Path.home() / ".hermes" / ".env", ROOT / ".env"]
-SENTENCE_RE = re.compile(r"(.+?[.!?])(?=\s|$)", re.DOTALL)
+# TTS streaming chunker (see VoicePipelineServer._extract_complete_sentences).
+# A chunk always ends at a strong terminator; it may also end at a weak one
+# once it is long enough. That keeps a long agent sentence from being held back
+# until its full stop (dead air at the start of a reply) without shredding the
+# reply into comma-sized synth requests, each of which pays Piper's startup.
+TTS_STRONG_END = ".!?"
+TTS_WEAK_END = ",;:"
 THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 CODEBLOCK_RE = re.compile(r"```.*?```", re.DOTALL)
 # Secret-shaped strings are never sent to cloud TTS (privacy filter):
@@ -529,6 +535,7 @@ class VoicePipelineServer:
         pending = ""
         full_response: list[str] = []
         spoken = False
+        min_chars = int((self.cfg.get("voice") or {}).get("min_chunk_chars", 60) or 0)
         await ws.send_json({"type": "agent_status", "state": "thinking"})
 
         q: asyncio.Queue = asyncio.Queue()
@@ -542,6 +549,7 @@ class VoicePipelineServer:
                 await q.put(exc)
 
         forward_task = asyncio.create_task(forward())
+        ack_task = self._start_ack(ws, timing, conn)
         try:
             while True:
                 item = await q.get()
@@ -572,26 +580,101 @@ class VoicePipelineServer:
                 # kind == "text"
                 full_response.append(value)
                 pending += value
-                sentences, pending = self._extract_complete_sentences(pending)
+                sentences, pending = self._extract_complete_sentences(pending, min_chars)
                 for sentence in sentences:
                     clean = self._clean_for_tts(sentence)
                     if not clean:
                         continue
+                    self._cancel_pending_ack(ack_task, conn)
                     if timing.first_sentence_monotonic is None:
                         timing.first_sentence_monotonic = time.perf_counter()
+                    async with conn.tts_lock:
+                        if not spoken:
+                            await ws.send_json({"type": "agent_status", "state": "speaking"})
+                            spoken = True
+                        conn.spoken_sentences.append(clean)
+                        await self._send_tts_sentence(ws, clean, timing)
+            tail = self._clean_for_tts(pending.strip())
+            if tail:
+                self._cancel_pending_ack(ack_task, conn)
+                if timing.first_sentence_monotonic is None:
+                    timing.first_sentence_monotonic = time.perf_counter()
+                async with conn.tts_lock:
                     if not spoken:
                         await ws.send_json({"type": "agent_status", "state": "speaking"})
                         spoken = True
-                    conn.spoken_sentences.append(clean)
-                    await self._send_tts_sentence(ws, clean, timing)
-            tail = self._clean_for_tts(pending.strip())
-            if tail:
-                conn.spoken_sentences.append(tail)
-                await self._send_tts_sentence(ws, tail, timing)
+                    conn.spoken_sentences.append(tail)
+                    await self._send_tts_sentence(ws, tail, timing)
         finally:
+            if ack_task is not None and not ack_task.done():
+                ack_task.cancel()
             if not forward_task.done():
                 forward_task.cancel()
         timing.response_text = "".join(full_response).strip()
+
+    @staticmethod
+    def _cancel_pending_ack(ack_task: "asyncio.Task | None", conn: "ConnState") -> None:
+        """Call off a scheduled ack — the reply is about to talk over it.
+
+        An ack that has already begun is left alone: cutting it off mid-word
+        sounds worse than a beat of overlap-free wait, and `conn.tts_lock` makes
+        the sentence loop wait for it instead of mixing the two audio streams.
+        """
+        if ack_task is not None and not ack_task.done() and not conn.ack_started:
+            ack_task.cancel()
+
+    # ------------------------------------------------------------- Spoken ack
+
+    def _start_ack(
+        self, ws: WebSocket, timing: TurnTiming, conn: "ConnState",
+    ) -> "asyncio.Task | None":
+        """Schedule the "still working on it" cue if the config asks for one."""
+        h = self.cfg.get("hermes") or {}
+        try:
+            delay = float(h.get("ack_after_seconds", 0) or 0)
+        except (TypeError, ValueError):
+            delay = 0.0
+        texts = [t.strip() for t in (h.get("ack_texts") or []) if isinstance(t, str) and t.strip()]
+        if delay <= 0 or not texts:
+            return None
+        return asyncio.create_task(self._speak_ack(ws, timing, conn, delay, texts))
+
+    async def _speak_ack(
+        self, ws: WebSocket, timing: TurnTiming, conn: "ConnState",
+        delay: float, texts: list[str],
+    ) -> None:
+        """Fill a long thinking pause with a short spoken cue.
+
+        Nothing is said if the agent answers before the timer expires, so a
+        snappy reply is never prefixed with filler. Once the cue has started it
+        runs to completion while holding `tts_lock`; the sentence loop waits on
+        that lock rather than interleaving, because two TTS streams written into
+        the same socket do not sound like two voices — they sound like noise.
+        """
+        try:
+            await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            return
+        if conn.spoken_sentences:
+            return
+
+        text = texts[conn.ack_index % len(texts)]
+        conn.ack_index += 1
+        try:
+            async with conn.tts_lock:
+                conn.ack_started = True
+                try:
+                    # A throwaway timing keeps the cue out of the turn's
+                    # latency numbers: otherwise "time to first reply audio"
+                    # is really measuring the filler. The spoken characters
+                    # are still invoiced separately.
+                    await self._send_tts_sentence(ws, text, TurnTiming(turn_id=timing.turn_id))
+                finally:
+                    conn.ack_started = False
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            timing.errors.append(f"ack: {type(exc).__name__}: {exc}")
 
     async def _async_llm_events(
         self, transcript: str, timing: TurnTiming, conversation: str,
@@ -642,13 +725,56 @@ class VoicePipelineServer:
         await worker_task
 
     @staticmethod
-    def _extract_complete_sentences(text: str) -> tuple[list[str], str]:
-        sentences = []
-        last_end = 0
-        for match in SENTENCE_RE.finditer(text):
-            sentences.append(match.group(1).strip())
-            last_end = match.end()
-        return sentences, text[last_end:]
+    def _extract_complete_sentences(text: str, min_chars: int = 0) -> tuple[list[str], str]:
+        """Split off finished chunks of a streaming reply for TTS.
+
+        Returns (chunks, remainder). Called repeatedly on the growing tail as
+        the LLM streams, so `remainder` is fed back in next time.
+
+        A chunk ends at `.!?` unconditionally. It may also end at `,;:` once
+        the chunk has reached `min_chars` characters (0 disables weak splits).
+
+        The weak rule is what makes a reply start speaking sooner: an agent
+        sentence can run to 300 characters, and waiting for its full stop costs
+        a second of silence before any audio. The length floor guards the
+        opposite failure — splitting on every comma turns one reply into a
+        dozen tiny synth requests, which sounds choppy and is no faster.
+
+        A terminator only ends a chunk when whitespace or the end of the text
+        follows it, so `3.5` and `1.800` stay whole, and a comma between digits
+        never splits (`12,000`). An abbreviation like `e.g.` still splits — that
+        is exactly what the previous regex did, so it is not a regression.
+        """
+        chunks: list[str] = []
+        start = 0
+        n = len(text)
+        for i, ch in enumerate(text):
+            if ch in TTS_STRONG_END:
+                weak = False
+            elif ch in TTS_WEAK_END:
+                weak = True
+            else:
+                continue
+
+            # Only a terminator followed by a break ends a chunk.
+            nxt = text[i + 1] if i + 1 < n else ""
+            if nxt and not nxt.isspace():
+                continue
+            if weak:
+                if not min_chars or (i - start + 1) < min_chars:
+                    continue
+                # "12,000" / "3, 4" — a comma between digits is not a break.
+                if ch == "," and (nxt.isdigit() or (i > 0 and text[i - 1].isdigit())):
+                    continue
+
+            chunk = text[start:i + 1].strip()
+            # Skip punctuation-only fragments: there is nothing to say, and
+            # Piper would only emit a stray click for them.
+            if chunk and any(c.isalnum() for c in chunk):
+                chunks.append(chunk)
+            start = i + 1
+
+        return chunks, text[start:]
 
     @staticmethod
     def _clean_for_tts(text: str) -> str:
@@ -1100,6 +1226,11 @@ class ConnState:
     interrupt_note: str | None = None
     partial_task: asyncio.Task | None = None
     last_partial_bytes: int = 0
+    # Serialises TTS writes so the spoken ack and the reply never interleave on
+    # the same socket (two overlapping PCM streams arrive as noise, not audio).
+    tts_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    ack_started: bool = False
+    ack_index: int = 0
 
 
 async def _run_turn(ws: WebSocket, pipeline: VoicePipelineServer, conn: ConnState) -> None:

@@ -14,7 +14,11 @@ hermes:
   conversation: jarvis-main          # shared voice + HUD thread name
   session_key: jarvis:user:main      # stable long-term memory scope
   timeout: 240
-  ack_after_seconds: 0               # >0 = speak a short ack while the agent works
+  # Spoken filler for long agent turns: if no reply sentence has started
+  # synthesizing after this many seconds, speak the next ack_text. 0 disables.
+  # ~1.5-2.5s is the useful range; the cue is skipped entirely when the agent
+  # answers quickly, so it never delays a snappy reply.
+  ack_after_seconds: 0
   ack_texts: ["On it.", "Still working.", "Almost there."]
   fallback_provider: anthropic
   instructions: >
@@ -70,6 +74,12 @@ voice:
   voice_name: "Your chosen voice"
   voice_id: YOUR_ELEVENLABS_VOICE_ID
   output_format: pcm_16000
+  # Stream the reply clause by clause: a chunk always ends at .!? and may also
+  # end at ,;: once it is at least this many characters. Lower = the first
+  # words start playing sooner; 0 = only split on full stops. Every chunk pays
+  # Piper's startup, so 40-80 is the sweet spot — going far below that makes the
+  # reply choppy and no faster overall.
+  min_chunk_chars: 60
 
 persona:                     # used only by the anthropic fallback path
   system_prompt: >
