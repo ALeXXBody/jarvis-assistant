@@ -81,7 +81,8 @@ them is a `WebSocketDisconnect`:
 `receive()` *returns* the `{"type": "websocket.disconnect"}` frame (it does not
 raise), so a loop that only checks for `text`/`bytes` spins once and then dies on
 the next `receive()` with an uncaught `WebSocketDisconnected`. On the live host
-that produced **16 unhandled ASGI tracebacks in three days** from ordinary panel
+that produced **8 unhandled ASGI tracebacks** (16 occurrences of the exception
+name) in the unit's three-day life, all from ordinary panel
 disconnects. The endpoint now (a) stops when the close frame arrives, (b) catches
 both exception types, and (c) cancels an in-flight turn in a `finally:` — a
 disconnect mid-turn used to leave the turn running against a socket nobody read.

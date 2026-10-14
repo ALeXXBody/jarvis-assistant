@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Integration check: /ws must close cleanly when the client disconnects.
 
-Reproduces the exact failure that produced 16 unhandled ASGI tracebacks in the
+Reproduces the exact failure that produced 8 unhandled ASGI tracebacks in the
 service log. Starlette's receive() *returns* {"type": "websocket.disconnect"}
 and raises WebSocketDisconnected (a plain RuntimeError, and NOT a
 WebSocketDisconnect subclass) only on the *next* call. The endpoint caught only
