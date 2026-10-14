@@ -70,17 +70,20 @@
 #define JARVIS_TAP_DEBOUNCE_MS  350
 
 /* --- OTA (over-the-air firmware updates) -------------------------------- */
-/* Base URL of the release that publishes `version.txt` + `firmware.bin`; the
- * updater appends those two names, so this must point at a directory. Defaults
- * to this project's GitHub "latest release". Downloading release assets works
- * unauthenticated once the repo is public; a private repo needs a custom URL or
- * a token. Set to "" to disable updating entirely.
+/* Base URL of the directory the updater GETs `firmware.bin` from. Default:
+ * the project's GitHub *Pages* mirror of the latest release — the
+ * flasher-pages workflow publishes all assets there on every release. That
+ * is a plain direct GET: GitHub's "releases/latest/download/" route resolves
+ * through an HTTP redirect that the panel's HTTP stack can't follow (the
+ * field log shows it giving up with "HTTP 302"), so the direct host is used
+ * instead. The version of the incoming image is read from the image's own
+ * app descriptor — no auxiliary version file. Set to "" to disable updating.
  *
  * Override for a self-hosted mirror, e.g.
  *   PLATFORMIO_BUILD_FLAGS='-D JARVIS_DEFAULT_OTA_URL=\"http://192.0.2.10:8000/fw/\"' */
 #ifndef JARVIS_DEFAULT_OTA_URL
 #define JARVIS_DEFAULT_OTA_URL \
-    "https://github.com/ALeXXBody/jarvis-assistant/releases/latest/download/"
+    "https://alexxbody.github.io/jarvis-assistant/"
 #endif
 #define JARVIS_OTA_HTTP_TIMEOUT_MS  20000
 #define JARVIS_OTA_USER_AGENT       "jarvis-panel-ota/1.0"

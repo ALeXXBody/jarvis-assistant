@@ -11,10 +11,9 @@
 #   JARVIS_REPO            owner/repo to publish to  (default: ALeXXBody/jarvis-assistant)
 #   PLATFORMIO_BUILD_FLAGS any flags you already use are kept; the version is appended
 #
-# Published assets — the OTA updater fetches the last two by exact name:
+# Published assets — the OTA updater fetches `firmware.bin` by exact name:
 #   firmware.factory.bin   combined image  -> flash at 0x0 on a fresh board
-#   firmware.bin           app image       -> OTA payload
-#   version.txt            plain version   -> OTA version check
+#   firmware.bin           app image, carries its own version descriptor
 #
 # The three small part images are published so the browser page can re-flash
 # a board *without* erasing NVS (Wi-Fi credentials + brain URL survive an
@@ -53,11 +52,10 @@ cp "$BUILD/firmware.factory.bin" dist/firmware.factory.bin
 cp "$BUILD/bootloader.bin"       dist/bootloader.bin
 cp "$BUILD/partitions.bin"       dist/partitions.bin
 cp "$BUILD/ota_data_initial.bin" dist/ota_data_initial.bin
-printf '%s\n' "$VER_NUM" > dist/version.txt
 
 echo ">> creating release $VERSION on $REPO"
 gh release create "$VERSION" \
-    dist/firmware.bin dist/firmware.factory.bin dist/version.txt \
+    dist/firmware.bin dist/firmware.factory.bin \
     dist/bootloader.bin dist/partitions.bin dist/ota_data_initial.bin \
     --repo "$REPO" \
     --title "Panel firmware $VERSION" \

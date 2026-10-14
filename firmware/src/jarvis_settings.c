@@ -50,6 +50,24 @@ esp_err_t jarvis_settings_init(void)
     s_cfg.volume = (int)vol;
     nvs_close(h);
 
+    /* One-time OTA-source migration. Panels flashed before v0.1.13 carry the
+     * GitHub "releases/latest/download/" base, which resolves through an
+     * HTTP redirect the panel's HTTP stack fails to follow - the URL the
+     * field log kept rejecting with "HTTP 302". Shift them to the GitHub
+     * Pages mirror of the same release assets, which is a plain 200 GET.  */
+    static const char LEGACY_OTA[] =
+        "https://github.com/ALeXXBody/jarvis-assistant/releases/latest/download/";
+    if (strcmp(s_cfg.ota_url, LEGACY_OTA) == 0) {
+        nvs_handle_t wh;
+        if (nvs_open(NVS_NS, NVS_READWRITE, &wh) == ESP_OK) {
+            nvs_set_str(wh, "ota_url", JARVIS_DEFAULT_OTA_URL);
+            nvs_commit(wh);
+            nvs_close(wh);
+        }
+        strlcpy(s_cfg.ota_url, JARVIS_DEFAULT_OTA_URL, sizeof(s_cfg.ota_url));
+        ESP_LOGI(TAG, "ota_url migrated to the direct (no-redirect) mirror");
+    }
+
     ESP_LOGI(TAG, "settings: ssid='%s' server='%s' conv='%s' vol=%d",
              s_cfg.wifi_ssid, s_cfg.server_url, s_cfg.conversation, s_cfg.volume);
     ESP_LOGI(TAG, "settings: ota_url='%s'", s_cfg.ota_url);

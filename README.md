@@ -360,18 +360,24 @@ pio device monitor -e jarvis-panel        # 115200 baud
 ## Updating over the air (OTA)
 
 Once a panel has been flashed once, it never needs a cable again. Each GitHub
-release publishes two images plus a version string:
+release publishes the images:
 
 | Asset | Used for |
 |---|---|
 | `firmware.factory.bin` | full image for a **first-time** USB flash (`esptool`, offset `0x0`) |
-| `firmware.bin` | the **app image** the panel pulls for OTA |
-| `version.txt` | bare version string used for the "is an update available?" check |
+| `firmware.bin` | the **app image** the panel pulls for OTA — it carries its own version inside |
 
 ### How the panel updates
 
-* **On boot** it fetches `version.txt` from its OTA source (default: this repo's
-  `releases/latest/download/`), compares it with the version of the image that
+* **On boot** it GETs `firmware.bin` from its OTA source (default: this
+  repo's GitHub Pages mirror
+  `https://alexxbody.github.io/jarvis-assistant/`, refreshed by the flasher
+  workflow on every release). The image's first bytes carry the app
+  descriptor — the same self-stamped version the running image reports — so
+  before anything is written, the updater compares the incoming descriptor
+  with the running one. Same or older: abort, nothing flashed. Newer: the
+  app is streamed into the *inactive* OTA slot and the panel reboots into it.
+  One GET, one source of truth — there is no auxiliary version file.
   is actually **running** — read from the running image's own app descriptor,
   not from a compile-time constant — and updates only if the release is newer.
   What version the panel ran *before* never matters: the descriptor travels
@@ -384,8 +390,8 @@ release publishes two images plus a version string:
   slot. A bad update cannot brick the panel.
 
 ```
-release ──► version.txt  ──► compare with running image's descriptor
-            firmware.bin ──► write inactive slot ──► reboot ──► mark valid
+release ──► firmware.bin ──► read incoming descriptor ──► compare with running
+                              newer: write inactive slot ──► reboot ──► mark valid
 ```
 
 The version a panel reports on the bottom bar, the setup sheet and the boot
@@ -490,16 +496,22 @@ Full bring-up checklist + fault table: [`firmware/docs/BRINGUP.md`](firmware/doc
   still works; editable source stays in `firmware/src/jarvis_config.h`.)
 
 * **OTA source** — `JARVIS_DEFAULT_OTA_URL` in `firmware/src/jarvis_config.h`
-  defaults to this repo's GitHub `releases/latest/download/`. Override it for a
-  mirror or self-hosted server, or set it to `""` to disable updating:
+  defaults to this repo's GitHub Pages mirror
+  (`https://alexxbody.github.io/jarvis-assistant/`) — a plain-hosted copy of
+  the latest release's assets, refreshed by the flasher workflow on every
+  release. It deliberately does **not** point at the GitHub
+  `releases/latest/download/` route: that resolves through an HTTP redirect
+  the panel's HTTP stack cannot follow (observed as a persistent
+  `HTTP 302` before giving up). Override it for a mirror or self-hosted
+  server, or set it to `""` to disable updating:
 
   ```sh
   PLATFORMIO_BUILD_FLAGS='-D JARVIS_DEFAULT_OTA_URL=\"http://192.0.2.10:8000/fw/\"' \
       pio run -e jarvis-panel
   ```
 
-  The URL must point at a **directory**; the updater appends `version.txt` and
-  `firmware.bin`. The (optional) runtime value lives in NVS and can be changed
+  The URL must point at a **directory**; the updater appends `firmware.bin`.
+  The (optional) runtime value lives in NVS and can be changed
   with `jarvis_settings_set_ota_url()`.
 
   > Keep the `\"…\"` escaping in these examples: PlatformIO parses

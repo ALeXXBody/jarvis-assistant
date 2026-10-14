@@ -47,7 +47,7 @@
   <script>
     // Show the exact release version of the firmware sitting next to this
     // page, so a stale download cannot be flashed by accident.
-    fetch('version.txt', { cache: 'no-store' })
+    fetch('fw-version.txt', { cache: 'no-store' })
       .then(r => (r.ok ? r.text() : Promise.reject(r.status)))
       .then(t => {
         const v = t.trim() || '?';
@@ -58,7 +58,7 @@
       })
       .catch(() => {
         document.getElementById('installed-version').textContent =
-          '⚠ version.txt not found next to this page — run get-latest.sh ' +
+          '⚠ fw-version.txt not found next to this page — run get-latest.sh ' +
           'first and re-check which firmware is here.';
       });
   </script>

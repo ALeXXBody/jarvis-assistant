@@ -39,10 +39,15 @@ echo
 echo ">> fetched files (compare sizes with the release page):"
 ls -l firmware.factory.bin bootloader.bin partitions.bin ota_data_initial.bin firmware.bin
 echo "   if a file is missing or truncated, re-run this script."
-curl -fsSL --retry 3 -o version.txt --clobber \
-    "https://github.com/$REPO/releases/latest/download/version.txt" 2>/dev/null \
-    || gh release download --repo "$REPO" --pattern 'version.txt' --clobber
-echo ">> installed firmware release: $(cat version.txt 2>/dev/null || echo '?')"
+
+TAG=$(gh release view --repo "$REPO" --json tagName --jq .tagName 2>/dev/null || true)
+if [ -z "$TAG" ]; then
+    TAG=$(curl -fsSL -o /dev/null -w '%{url_effective}' \
+        "https://github.com/$REPO/releases/latest/download/firmware.bin" 2>/dev/null \
+        | grep -o 'v[0-9][0-9.]*' | tail -1 || true)
+fi
+printf '%s\n' "${TAG:-unknown}" > fw-version.txt
+echo ">> installed firmware release: ${TAG:-?}"
 echo ">> done. Serve this folder, then open the page:"
 echo "   python3 -m http.server 8000"
 echo "   -> http://localhost:8000"

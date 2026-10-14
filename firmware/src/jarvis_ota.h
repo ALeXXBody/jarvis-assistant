@@ -1,16 +1,17 @@
 /*
  * OTA firmware updates — pull a release image over HTTPS.
  *
- * The panel fetches two assets from a base URL (`ota_url`, which must end in
- * '/') — by default the project's GitHub "latest release":
+ * The panel fetches one asset from a base URL (`ota_url`, which must end in
+ * '/') — by default the project's GitHub Pages mirror of the latest release:
  *
- *     <ota_url>version.txt     plain text, e.g. "0.1.1"
  *     <ota_url>firmware.bin    the application image
  *
- * `<ota_url>version.txt` is compared with the version of the image that is
- * actually running (from its app descriptor — see jarvis_ota_running_version).
- * If the remote is newer, `firmware.bin` is written
- * to the *inactive* OTA slot and the device reboots into it.
+ * The *incoming image* carries its own version in the app descriptor; the
+ * updater reads it from the stream (esp_https_ota_get_img_desc) before
+ * anything is written and compares it with the version of the image that is
+ * actually running. Same or older: nothing is flashed. Newer: the inactive
+ * OTA slot is written and the device reboots into it. One GET, one source
+ * of truth — no auxiliary version file.
  *
  * Rollback safety: with CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE the freshly
  * flashed image boots in "pending verify" state and the bootloader reverts to
