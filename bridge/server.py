@@ -46,6 +46,21 @@ try:
 except ImportError:  # machines panel degrades gracefully
     psutil = None
 
+try:  # starlette >= 1.7 reports a client going away with a second, unrelated type
+    from starlette.websockets import WebSocketDisconnected
+except ImportError:  # older starlette only has WebSocketDisconnect
+    WebSocketDisconnected = None
+
+# Both names mean "the client is gone", and both can surface in the same loop:
+#   * WebSocketDisconnect   — a close frame arrived, or a send hit OSError;
+#   * WebSocketDisconnected — receive()/send() was called once the socket was
+#     already closed. It is a plain RuntimeError, NOT a subclass, and FastAPI
+#     does not re-export it. Missing it left every panel disconnect escaping as
+#     an unhandled ASGI traceback.
+CLIENT_GONE: tuple = (WebSocketDisconnect,)
+if WebSocketDisconnected is not None:
+    CLIENT_GONE += (WebSocketDisconnected,)
+
 
 def _resample_22050_to_16000(raw: bytes) -> bytes:
     """Linear-interpolate Piper's 22050 Hz s16le mono PCM down to 16 kHz."""
@@ -1333,6 +1348,11 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     try:
         while True:
             message = await ws.receive()
+            # receive() *returns* the close frame rather than raising, so this
+            # has to be handled here; calling receive() again would raise
+            # WebSocketDisconnected instead of exiting cleanly.
+            if message.get("type") == "websocket.disconnect":
+                break
             if "text" in message and message["text"] is not None:
                 event = json.loads(message["text"])
                 etype = event.get("type")
@@ -1376,11 +1396,14 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 if conn.recording:
                     conn.audio_chunks.append(message["bytes"])
                     _maybe_schedule_partial(ws, pipeline, conn)
-    except WebSocketDisconnect:
-        if conn.turn_task and not conn.turn_task.done():
-            conn.turn_task.cancel()
+    except CLIENT_GONE:
         print("Client disconnected", flush=True)
     finally:
+        # Runs for both exit paths. A turn may still be in flight when the
+        # client goes away — without this it would keep working (and calling
+        # Hermes) for a socket nobody is reading.
+        if conn.turn_task and not conn.turn_task.done():
+            conn.turn_task.cancel()
         WS_CLIENTS.discard(ws)
 
 

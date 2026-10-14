@@ -118,7 +118,7 @@ Full research, spec sheet and options: [`PANEL_RESEARCH.md`](PANEL_RESEARCH.md).
 │   ├── llmproxy.py         LLM transport shim (forces reasoning off)
 │   ├── server.yaml         live config (env-var names + paths, no secrets)
 │   ├── server.example.yaml sanitised example config
-│   └── tests/              stdlib-only tests for the TTS chunker + spoken ack
+│   └── tests/              chunker + ack (stdlib-only) and WS-disconnect tests
 ├── PANEL_RESEARCH.md       hardware research + architecture options
 ├── BRIDGE_NOTES.md         brain deployment notes + latency tuning
 └── vendor/                 vendor-archive fetch script + manifest

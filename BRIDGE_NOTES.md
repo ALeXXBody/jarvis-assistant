@@ -68,6 +68,33 @@ python3 bridge/tests/test_chunker.py
 python3 bridge/tests/test_ack.py
 ```
 
+## Disconnect handling (this repo's `bridge/server.py`)
+
+Starlette reports a client going away in two unrelated ways, and only one of
+them is a `WebSocketDisconnect`:
+
+- `WebSocketDisconnect` — a close frame arrived, or a send hit `OSError`;
+- `WebSocketDisconnected` — `receive()`/`send()` was called once the socket was
+  already closed. It is a plain **`RuntimeError`, not a subclass**, and FastAPI
+  does not re-export it.
+
+`receive()` *returns* the `{"type": "websocket.disconnect"}` frame (it does not
+raise), so a loop that only checks for `text`/`bytes` spins once and then dies on
+the next `receive()` with an uncaught `WebSocketDisconnected`. On the live host
+that produced **16 unhandled ASGI tracebacks in three days** from ordinary panel
+disconnects. The endpoint now (a) stops when the close frame arrives, (b) catches
+both exception types, and (c) cancels an in-flight turn in a `finally:` — a
+disconnect mid-turn used to leave the turn running against a socket nobody read.
+
+Its regression test drives the real endpoint with a real Starlette `WebSocket`
+fed by a scripted `receive()`, so it needs the service's own venv:
+
+```
+/opt/jarvis/venv/bin/python3 bridge/tests/test_ws_disconnect.py
+```
+
+Run it under a bare `python3` and it prints `SKIP` and exits 0.
+
 **Deploying:** the live host runs a *copy* at
 `/opt/jarvis/jarvis_ai/server/server.py` with its own
 `config/server.yaml`. Copy both files across (or re-apply the two knobs by hand)
