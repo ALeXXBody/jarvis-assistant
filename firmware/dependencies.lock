@@ -34,28 +34,15 @@ dependencies:
       type: service
     version: 1.6.2
   espressif/esp_hosted:
-    component_hash: d72bce4d4a9fd6d4b610f3437735f58c70cfe40abfc969b53396dbb2e1d4c49b
+    component_hash: dc331a292b11aa24e788921dab3d4c6624704f0257c6c42ef984ab7537577f05
     dependencies:
     - name: idf
       require: private
-      version: '>=5.5'
+      version: '>=5.3'
     source:
       registry_url: https://components.espressif.com/
       type: service
-    targets:
-    - esp32
-    - esp32c2
-    - esp32s2
-    - esp32s3
-    - esp32c3
-    - esp32c5
-    - esp32c6
-    - esp32c61
-    - esp32h2
-    - esp32h4
-    - esp32h21
-    - esp32p4
-    version: 3.0.9
+    version: 2.13.0
   espressif/esp_serial_slave_link:
     component_hash: ac1776806de0a6e371c84e87898bb983e19ce62aa7f1e2e5c4a3b0234a575d2c
     dependencies:
@@ -121,6 +108,6 @@ direct_dependencies:
 - espressif/esp_websocket_client
 - espressif/esp_wifi_remote
 - idf
-manifest_hash: 2a4277da86b36597133049e23f316da6b67ee176168c8eb3e39471e12a5a864f
+manifest_hash: 8b591b9b9ff94c8afc430813521e42b4704277abb28a9925a84ffac3f51174c5
 target: esp32p4
 version: 3.0.0

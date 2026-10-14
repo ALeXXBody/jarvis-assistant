@@ -10,13 +10,14 @@ speaks the reply while showing a live arc-reactor status display and transcript.
 * **Custom firmware.** Not the vendor demo — an ESP-IDF app written for this
   exact board, with a hand-rolled direct-framebuffer UI (no LVGL).
 * **Small and clean.** Builds in well under a minute, no compiler warnings;
-  Flash ≈ 24 %, static RAM ≈ 4.8 % of the app slots.
+  Flash ≈ 37 %, static RAM ≈ 6 % of the app slots.
 * **Self-updating.** The panel pulls new firmware from GitHub releases over the
   air (with bootloader rollback safety) — no cable needed after the first flash.
 
-> Status: **firmware builds clean; not yet validated on physical hardware.**
-> Display / touch / audio drivers are written against verified driver APIs and
-> are the next thing to test on a real panel. See [`firmware/docs/BRINGUP.md`](firmware/docs/BRINGUP.md).
+> Status: **running on hardware.** Display, touch and Wi-Fi (the on-board C6 via
+> ESP-Hosted) are confirmed on the panel; the audio path (ES8311 mic + speaker)
+> is in bring-up. See [`PANEL_AUDIT.md`](PANEL_AUDIT.md) and
+> [`firmware/docs/BRINGUP.md`](firmware/docs/BRINGUP.md).
 
 ---
 
@@ -225,8 +226,8 @@ Output:
 A successful build looks like:
 
 ```
-RAM:   [          ]   4.8% (used 36716 bytes from 768000 bytes)
-Flash: [==        ]  24.4% (used 974874 bytes from 3997696 bytes)
+RAM:   [=         ]   6.1% (used 46868 bytes from 768000 bytes)
+Flash: [====      ]  37.3% (used 1491922 bytes from 3997696 bytes)
 ========================= [SUCCESS] =========================
 ```
 

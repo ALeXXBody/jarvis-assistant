@@ -29,10 +29,10 @@ Schematic notes:
   right one; no ES7210 in the capture chain.
 - **C6_CHIP_PU is NOT driven by the P4.** It exists only on debug
   connector CN5 (pin 6). The C6 boots by itself; package pin 54 (the pin
-  ESP-Hosted's default `CONFIG_ESP_HOSTED_HOST_RESET_GPIO=54` toggles) is
+  ESP-Hosted's `CONFIG_ESP_HOSTED_SDIO_GPIO_RESET_SLAVE=54` toggles) is
   physically NC. The toggle is therefore a no-op — harmless, and the C6
-  slave firmware handshake has been field-confirmed working
-  (`host=3.x ↔ coprocessor=2.3.2`, the vendor's own slave image).
+  slave firmware handshake is field-confirmed working (the vendor's own
+  `JC-C6-slave` image, which reports coprocessor fw 2.3.2).
 - W25Q128 flash drawn in the schematic; the fitted part is BOYA (boot log
   warning) — benign, generic SPI driver handles it.
 
@@ -64,9 +64,17 @@ Open: vertical white lines were reported on an early build and not re-checked.
 
 ## Wi-Fi — ESP32-C6 over ESP-Hosted
 
-- Requires `espressif/esp_wifi_remote` and `CONFIG_ESP_HOSTED_HOST_FEAT_WIFI=y`
-  (without them the Wi-Fi API is a stub that returns ESP_ERR_NOT_SUPPORTED).
-- Verified on the panel: station joins a 2.4 GHz WPA2 network and gets an IP.
+- The C6 runs the vendor slave firmware, which is the **2.x** ESP-Hosted line
+  (it reports coprocessor fw 2.3.2). The host is therefore pinned to
+  `espressif/esp_hosted` **2.13.0** with `espressif/esp_wifi_remote` 1.6.5, and
+  the hosted backend is selected with `CONFIG_ESP_WIFI_REMOTE_LIBRARY_HOSTED=y`
+  (without it the esp_wifi API is a stub that returns ESP_ERR_NOT_SUPPORTED).
+- SDIO wiring is pinned explicitly to the vendor's board defaults, identical to
+  the vendor `Simple_WiFi_hosted` host project: slot 1, 4-bit bus, 40 MHz,
+  CLK=18 CMD=19 D0-D3 14-17, slave reset GPIO 54 (active high).
+- Verified on the panel: station joins a 2.4 GHz WPA2 network and gets an IP
+  (this was observed with the previous 3.x host; the 2.x pin is re-verified on
+  the next flash).
 
 ## Settings persistence across updates
 
@@ -92,7 +100,11 @@ Open: vertical white lines were reported on an early build and not re-checked.
 4. The brain link works (`ws://192.0.2.10:8765/ws`); the bridge answered
    `No transcript detected` for the early test turns — a bridge-side item the
    user is handling.
-5. ESP-Hosted logs `host=3.0.9 ↔ coprocessor=2.3.2` and a major-version
-   advisory. It is **non-fatal** (the compat check only logs; Wi-Fi works). No
-   registry host release matches 2.3.2 and the 2.x host line does not build
-   against this project's build glue, so it is left as-is pending a decision.
+5. ESP-Hosted host/coprocessor version match — **fixed**. The on-board C6 runs
+   the 2.x ESP-Hosted line (coprocessor fw 2.3.2), so the host was moved from
+   3.0.9 down to the 2.x line (**2.13.0**, the newest 2.x; `esp_wifi_remote`
+   1.6 needs >= 2.11). The MAJOR versions now match and ESP-Hosted no longer
+   logs its "major version mismatch — OTA coprocessor from host" advisory. The
+   2.x host builds cleanly against this project's glue once the stale 3.x
+   component is removed, and its SDIO pin/bus defaults are identical to the
+   vendor's own host example.

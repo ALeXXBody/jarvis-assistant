@@ -61,9 +61,26 @@ CONFIG_OTA_ALLOW_HTTP=y
 # --- ESP-Hosted (ESP32-C6 Wi-Fi over SDIO) --------------------------------
 # The on-board ESP32-C6 provides the radio; the P4 talks to it over SDIO
 # through the esp_hosted component (see src/idf_component.yml). The C6 runs
-# the vendor slave firmware (JC-C6-slave) as shipped from the factory.
-CONFIG_ESP_HOSTED_SDIO_HOST=y
+# the vendor slave firmware (JC-C6-slave) as shipped from the factory and
+# reports coprocessor fw 2.3.2, i.e. the 2.x ESP-Hosted line. The host is
+# pinned to the 2.x line (2.13.0) so host and coprocessor MAJOR versions
+# match - ESP-Hosted then no longer logs the "major version mismatch - OTA
+# coprocessor from host" advisory. 2.x requires the hosted backend selector
+# below so the strong esp_wifi_remote_* RPC symbols are linked (the weak
+# ones only answer ESP_ERR_NOT_SUPPORTED).
+CONFIG_ESP_HOSTED_SDIO_HOST_INTERFACE=y
 CONFIG_ESP_WIFI_REMOTE_ENABLED=y
-# ESP-Hosted host side of the Wi-Fi RPC: provides the strong esp_wifi_remote_*
-# symbols (the weak ones only answer ESP_ERR_NOT_SUPPORTED)
-CONFIG_ESP_HOSTED_HOST_FEAT_WIFI=y
+CONFIG_ESP_WIFI_REMOTE_LIBRARY_HOSTED=y
+# SDIO wiring - the vendor's board defaults, identical to the vendor
+# Simple_WiFi_hosted host project: slot 1, 4-bit bus, 40 MHz,
+# CLK=18 CMD=19 D0=14 D1=15 D2=16 D3=17, slave reset GPIO 54 (active high).
+CONFIG_ESP_HOSTED_SDIO_SLOT_1=y
+CONFIG_ESP_HOSTED_SDIO_4_BIT_BUS=y
+CONFIG_ESP_HOSTED_SDIO_PIN_CLK=18
+CONFIG_ESP_HOSTED_SDIO_PIN_CMD=19
+CONFIG_ESP_HOSTED_SDIO_PIN_D0=14
+CONFIG_ESP_HOSTED_SDIO_PIN_D1=15
+CONFIG_ESP_HOSTED_SDIO_PIN_D2=16
+CONFIG_ESP_HOSTED_SDIO_PIN_D3=17
+CONFIG_ESP_HOSTED_SDIO_GPIO_RESET_SLAVE=54
+CONFIG_ESP_HOSTED_SDIO_RESET_ACTIVE_HIGH=y
