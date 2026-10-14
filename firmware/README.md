@@ -146,9 +146,12 @@ firmware/
 
 ## Status
 
-* Builds clean (no warnings) for `esp32p4`; Flash ≈ 24 %, static RAM ≈ 4.8 %.
-* Display, touch, audio, battery drivers are written against verified driver
-  APIs; **not yet validated on physical hardware** — that is the next step.
-* Wi-Fi (ESP-Hosted to the C6) is gated off; the satellite runs offline until
-  the C6 slave firmware is set up (`docs/BRINGUP.md` §5).
+* Builds clean (no warnings) for `esp32p4`; Flash ≈ 34 %, static RAM ≈ 6 %.
+* **Running on hardware.** Display (JD9365 direct-framebuffer), touch (GT911)
+  and Wi-Fi (ESP-Hosted to the on-board ESP32-C6 over SDIO) are confirmed on
+  the panel; the audio path (ES8311 mic + speaker) is in bring-up. See
+  [`docs/BRINGUP.md`](docs/BRINGUP.md) and [`../PANEL_AUDIT.md`](../PANEL_AUDIT.md).
+* Wi-Fi ships **enabled** — the C6 runs the vendor slave firmware (the 2.x
+  ESP-Hosted line, coprocessor fw 2.3.2), and the host is pinned to
+  `espressif/esp_hosted` 2.13.0 so the host/coprocessor major versions match.
 * WS2812 reactor LED is gated off by default (pin unverified).

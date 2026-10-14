@@ -10,7 +10,7 @@ speaks the reply while showing a live arc-reactor status display and transcript.
 * **Custom firmware.** Not the vendor demo — an ESP-IDF app written for this
   exact board, with a hand-rolled direct-framebuffer UI (no LVGL).
 * **Small and clean.** Builds in well under a minute, no compiler warnings;
-  Flash ≈ 37 %, static RAM ≈ 6 % of the app slots.
+  Flash ≈ 34 %, static RAM ≈ 6 % of the app slots.
 * **Self-updating.** The panel pulls new firmware from GitHub releases over the
   air (with bootloader rollback safety) — no cable needed after the first flash.
 
@@ -226,8 +226,8 @@ Output:
 A successful build looks like:
 
 ```
-RAM:   [=         ]   6.1% (used 46868 bytes from 768000 bytes)
-Flash: [====      ]  37.3% (used 1491922 bytes from 3997696 bytes)
+RAM:   [=         ]   5.9% (used 45196 bytes from 768000 bytes)
+Flash: [===       ]  34.2% (used 1365466 bytes from 3997696 bytes)
 ========================= [SUCCESS] =========================
 ```
 

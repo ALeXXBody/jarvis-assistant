@@ -28,7 +28,7 @@ esptool.py --chip esp32p4 write_flash 0x0 .pio/build/jarvis-panel/firmware.facto
 ESP Web Tools installer page (and a manual ESP-Tool fallback) — see
 [flash/README.md](../../flash/README.md).
 
-Verified build footprint: Flash ≈ 24 %, static RAM ≈ 4.8 %.
+Verified build footprint: Flash ≈ 34 %, static RAM ≈ 6 %.
 
 Air updates are enabled (see §4a); after the cable flash above you can push new
 builds as GitHub releases instead of reflashing.
