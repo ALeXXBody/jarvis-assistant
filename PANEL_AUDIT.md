@@ -76,6 +76,15 @@ Open: vertical white lines were reported on an early build and not re-checked.
 - SDIO wiring stays on ESP-Hosted's own ESP32-P4 defaults (bus SDIO, slot 1,
   4-bit) — the same configuration the panel was verified with from v0.1.4
   through v0.1.8.
+- Join retry policy (since v0.1.11): the first 5 failed joins retry every
+  3 s, then attempts slow to one every 45 s. This is what keeps the setup
+  sheet's network list usable after a bad saved password: a scan against a
+  radio stuck mid 4-way handshake returns 0 APs — the join loop now goes
+  quiet before every scan and resumes 2 s later. The status line shows
+  `wifi: password rejected` / `AP not found` so the cause stays visible.
+- The `ui_scan` task stack was raised to 20 KB: the field log caught two
+  stack-protection panics in exactly that task while scanning (panel
+  reboots when opening the setup sheet).
 
 ## Settings persistence across updates
 
