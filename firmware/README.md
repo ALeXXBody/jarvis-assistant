@@ -147,7 +147,7 @@ firmware/
 ## Status
 
 * Builds clean (no warnings) for `esp32p4`; Flash ≈ 34 %, static RAM ≈ 6 %.
-* **Running on hardware.** Display (JD9365 direct-framebuffer), touch (GT911)
+* **Running on hardware.** Display (JD9365 direct-framebuffer), touch (GSL3680)
   and Wi-Fi (ESP-Hosted to the on-board ESP32-C6 over SDIO) are confirmed on
   the panel; the audio path (ES8311 mic + speaker) is in bring-up. See
   [`docs/BRINGUP.md`](docs/BRINGUP.md) and [`../PANEL_AUDIT.md`](../PANEL_AUDIT.md).
