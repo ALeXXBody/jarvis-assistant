@@ -371,8 +371,11 @@ release publishes two images plus a version string:
 ### How the panel updates
 
 * **On boot** it fetches `version.txt` from its OTA source (default: this repo's
-  `releases/latest/download/`), compares it with the version compiled into the
-  running image (`JARVIS_FW_VERSION`), and updates only if the release is newer.
+  `releases/latest/download/`), compares it with the version of the image that
+  is actually **running** — read from the running image's own app descriptor,
+  not from a compile-time constant — and updates only if the release is newer.
+  What version the panel ran *before* never matters: the descriptor travels
+  with the image, so a flashed panel always knows exactly which version it is.
 * **On demand** — press `u` on the serial console to force a check.
 * The new image is written to the **inactive** OTA slot and the panel reboots
   into it.
@@ -381,9 +384,15 @@ release publishes two images plus a version string:
   slot. A bad update cannot brick the panel.
 
 ```
-release ──► version.txt  ──► compare with running fw
+release ──► version.txt  ──► compare with running image's descriptor
             firmware.bin ──► write inactive slot ──► reboot ──► mark valid
 ```
+
+The version a panel reports on the bottom bar, the setup sheet and the boot
+log comes from the same descriptor. `tools/release.sh` stamps it
+deterministically (`firmware/version.txt` → `PROJECT_VER` → app descriptor);
+dev builds fall back to git describe, so an uncommitted build always shows
+its true provenance.
 
 ### Publishing a release
 
@@ -392,8 +401,10 @@ cd firmware
 tools/release.sh v0.2.0 "Display timing fix; touch axis correction"
 ```
 
-This stamps the version into the build, writes the assets to `firmware/dist/`,
-and creates the GitHub release with `gh`. To point a panel at a different source
+This writes `firmware/version.txt`, builds, stamps the release number into
+the app descriptor, writes the assets to `firmware/dist/`, removes
+`version.txt` again (so dev builds keep the git-describe version) and creates
+the GitHub release with `gh`. To point a panel at a different source
 (a mirror, or your own server), override `JARVIS_DEFAULT_OTA_URL` — see
 [Configuration](#configuration).
 

@@ -64,17 +64,18 @@ Open: vertical white lines were reported on an early build and not re-checked.
 
 ## Wi-Fi — ESP32-C6 over ESP-Hosted
 
-- The C6 runs the vendor slave firmware, which is the **2.x** ESP-Hosted line
-  (it reports coprocessor fw 2.3.2). The host is therefore pinned to
-  `espressif/esp_hosted` **2.13.0** with `espressif/esp_wifi_remote` 1.6.5, and
-  the hosted backend is selected with `CONFIG_ESP_WIFI_REMOTE_LIBRARY_HOSTED=y`
-  (without it the esp_wifi API is a stub that returns ESP_ERR_NOT_SUPPORTED).
-- SDIO wiring is pinned explicitly to the vendor's board defaults, identical to
-  the vendor `Simple_WiFi_hosted` host project: slot 1, 4-bit bus, 40 MHz,
-  CLK=18 CMD=19 D0-D3 14-17, slave reset GPIO 54 (active high).
-- Verified on the panel: station joins a 2.4 GHz WPA2 network and gets an IP
-  (this was observed with the previous 3.x host; the 2.x pin is re-verified on
-  the next flash).
+- The C6 runs the vendor slave firmware, which reports coprocessor fw 2.3.2.
+  ESP-Hosted logs a "major version mismatch - OTA coprocessor from host"
+  advisory against it — it **only logs**; the Wi-Fi API works.
+- The host is pinned to the **3.x** line (`espressif/esp_hosted` ^3.0.9),
+  field-verified on the panel (station joins a 2.4 GHz WPA2 network, gets an
+  IP). v0.1.9 tried to silence the advisory by pinning the host to the 2.x
+  line (2.13.0) and **killed the radio**: the panel reported
+  "radio unavailable" (esp_wifi_init never came up). Reverted in v0.1.10.
+  Do not pin the host to 2.x again.
+- SDIO wiring stays on ESP-Hosted's own ESP32-P4 defaults (bus SDIO, slot 1,
+  4-bit) — the same configuration the panel was verified with from v0.1.4
+  through v0.1.8.
 
 ## Settings persistence across updates
 
@@ -91,8 +92,10 @@ Open: vertical white lines were reported on an early build and not re-checked.
 
 ## Status of open items
 
-1. Running firmware version — reported on the setup sheet and in the 10 s boot
-   report; the panel was on v0.1.6 at audit time (user-confirmed).
+1. Running firmware version — reported on the setup sheet, bottom bar and in
+   the 10 s boot report. Since v0.1.10 it is read from the running image's
+   app descriptor (stamped by `tools/release.sh`), so the number is the
+   version of the image actually running, not a compile-time constant.
 2. Microphone level — the ES8311 input gain is now 24 dB
    (`BSP_AUDIO_MIC_GAIN_DB`); awaiting a user-reported `mic level rms=...` line
    from a live turn.
@@ -100,11 +103,8 @@ Open: vertical white lines were reported on an early build and not re-checked.
 4. The brain link works (`ws://192.0.2.10:8765/ws`); the bridge answered
    `No transcript detected` for the early test turns — a bridge-side item the
    user is handling.
-5. ESP-Hosted host/coprocessor version match — **fixed**. The on-board C6 runs
-   the 2.x ESP-Hosted line (coprocessor fw 2.3.2), so the host was moved from
-   3.0.9 down to the 2.x line (**2.13.0**, the newest 2.x; `esp_wifi_remote`
-   1.6 needs >= 2.11). The MAJOR versions now match and ESP-Hosted no longer
-   logs its "major version mismatch — OTA coprocessor from host" advisory. The
-   2.x host builds cleanly against this project's glue once the stale 3.x
-   component is removed, and its SDIO pin/bus defaults are identical to the
-   vendor's own host example.
+5. ESP-Hosted host/coprocessor version "match" — **resolved as a documented
+   non-issue**. The advisory is cosmetic; matching the coprocessor by pinning
+   the host to the 2.x line (v0.1.9) made the radio disappear and was
+   reverted in v0.1.10. The 3.x host stays; the advisory is logged once per
+   boot and Wi-Fi works.
