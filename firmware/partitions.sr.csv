@@ -1,0 +1,19 @@
+# JARVIS satellite partition table — ESP-SR variant (jarvis-panel-sr).
+#
+# Identical to partitions.csv except a 2 MB `model` partition is carved out of
+# the front of the unused `assets` reserve, because esp-sr's build step packs
+# the selected AFE models into a partition labelled `model` and the AFE reads
+# them back from flash by that label (esp_srmodel_init("model")).
+#
+# 16 MB flash (W25Q128). Everything below 0x7C0000 is byte-for-byte the same
+# as partitions.csv, so a device can be reflashed between the two layouts with
+# no change to the app slots, NVS or OTA state.
+#
+# Name,      Type, SubType,  Offset,   Size,     Flags
+nvs,         data, nvs,      0xa000,   0x6000,
+otadata,     data, ota,      0x10000,  0x2000,
+phy_init,    data, phy,      0x12000,  0x1000,
+ota_0,       app,  ota_0,    0x20000,  0x3D0000,
+ota_1,       app,  ota_1,    0x3F0000, 0x3D0000,
+model,       data, spiffs,   0x7C0000, 0x200000,
+assets,      data, spiffs,   0x9C0000, 0x640000,

@@ -1,4 +1,5 @@
 #include "jarvis_audio.h"
+#include "jarvis_afe.h"
 #include "jarvis_config.h"
 #include "jarvis_settings.h"
 #include "jarvis_state.h"
@@ -21,6 +22,7 @@ static StreamBufferHandle_t s_play_buf;
 static volatile bool s_capturing;
 static volatile bool s_turn_done;
 static jarvis_audio_silence_cb_t s_silence_cb;
+static jarvis_audio_barge_cb_t s_barge_cb;
 static volatile float s_mic_level;      /* 0..1, EMA of mic RMS (UI poll) */
 
 /* ---------------- playback ------------------------------------------------ */
@@ -38,6 +40,10 @@ static void play_task(void *arg)
         size_t got = xStreamBufferReceive(s_play_buf, buf, JARVIS_FRAME_BYTES * 4,
                                           pdMS_TO_TICKS(200));
         if (got > 0) {
+            /* Hand the very same audio to the echo canceller as its far-end
+             * reference before it becomes audible. With the AFE this lets the
+             * mic stay open while we talk; without it this is a cheap no-op. */
+            jarvis_afe_push_reference((const int16_t *)buf, got / sizeof(int16_t));
             bsp_audio_play(buf, got, 1000);
         } else if (s_turn_done) {
             /* Buffer drained and the server said the turn is finished. */
@@ -71,6 +77,12 @@ void jarvis_audio_flush(void)
     if (s_play_buf) {
         xStreamBufferReset(s_play_buf);
     }
+    /* The AEC reference ring is deliberately NOT flushed here. The play task
+     * pushes the reference immediately before handing the same bytes to the
+     * codec, so the ring only ever holds audio that is already at the DAC (and
+     * still audible for a few frames) — flushing it would throw away the
+     * reference for exactly the sound we most need to cancel. Audio that was
+     * merely queued never reaches the ring in the first place. */
     s_turn_done = false;
 }
 
@@ -80,6 +92,9 @@ void jarvis_audio_flush(void)
  * Non-blocking; the UI polls it for the waveform ring. */
 float jarvis_audio_mic_level(void)
 {
+    if (jarvis_afe_running()) {
+        return jarvis_afe_mic_level();
+    }
     return s_mic_level;
 }
 
@@ -166,14 +181,38 @@ static void capture_task(void *arg)
     }
 }
 
+#if JARVIS_HAVE_AFE
+/* Raised from the AFE fetch task once the AFE has decided the utterance is
+ * over, or that the user has started talking over a reply. */
+static void afe_event_cb(jarvis_afe_event_t ev)
+{
+    if (ev == JARVIS_AFE_EV_END_OF_SPEECH) {
+        s_capturing = false;
+        if (s_silence_cb) {
+            s_silence_cb();
+        }
+    } else if (ev == JARVIS_AFE_EV_BARGE_IN) {
+        if (s_barge_cb) {
+            s_barge_cb();
+        }
+    }
+}
+#endif
+
 void jarvis_audio_start_capture(void)
 {
     s_capturing = true;
+    if (jarvis_afe_running()) {
+        jarvis_afe_set_capturing(true);
+    }
 }
 
 void jarvis_audio_stop_capture(void)
 {
     s_capturing = false;
+    if (jarvis_afe_running()) {
+        jarvis_afe_set_capturing(false);
+    }
 }
 
 bool jarvis_audio_capturing(void)
@@ -184,6 +223,11 @@ bool jarvis_audio_capturing(void)
 void jarvis_audio_set_silence_cb(jarvis_audio_silence_cb_t cb)
 {
     s_silence_cb = cb;
+}
+
+void jarvis_audio_set_barge_cb(jarvis_audio_barge_cb_t cb)
+{
+    s_barge_cb = cb;
 }
 
 void jarvis_audio_set_volume(int percent)
@@ -214,6 +258,20 @@ esp_err_t jarvis_audio_init(void)
     if (ok != pdPASS) {
         return ESP_FAIL;
     }
+
+#if JARVIS_HAVE_AFE
+    /* Preferred path: the ESP-SR AFE owns the microphone (AEC + NS + VAD).
+     * It reads I2S directly, so the legacy RMS capture task must NOT also be
+     * created — two tasks draining the same I2S RX would each see half the
+     * audio. */
+    if (jarvis_afe_start() == ESP_OK) {
+        jarvis_afe_set_event_cb(afe_event_cb);
+        ESP_LOGI(TAG, "capture: ESP-SR AFE (AEC + NS + VAD), hands-free");
+        return ESP_OK;
+    }
+    ESP_LOGW(TAG, "AFE unavailable — falling back to the RMS silence gate");
+#endif
+
     ok = xTaskCreatePinnedToCore(capture_task, "jarvis_cap", 4096, NULL, 7,
                                  &s_capture_task, 1);
     return (ok == pdPASS) ? ESP_OK : ESP_FAIL;

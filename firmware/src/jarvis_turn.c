@@ -8,10 +8,34 @@
 
 static const char *TAG = "turn";
 
+/*
+ * Fired by the audio layer when the user starts speaking while we are NOT
+ * listening — which, with the ESP-SR AFE, is exactly the case during a reply.
+ *
+ * Deliberately only acts inside a turn (THINKING/SPEAKING): reacting while
+ * idle would turn the panel into an always-on, wake-word-less listener that
+ * streams the room to the bridge, which is a much bigger behavioural change
+ * than "you can interrupt an answer". Starting a turn when idle still needs a
+ * tap.
+ */
+static void jarvis_turn_voice_barge_in(void)
+{
+    jarvis_state_t st = jarvis_state_get();
+    if (st != JVS_SPEAKING && st != JVS_THINKING) {
+        return;
+    }
+    ESP_LOGI(TAG, "voice barge-in");
+    jarvis_state_push_line("[voice] interrupt");
+    /* Cancels the in-flight run, flushes playback and opens a new utterance. */
+    jarvis_turn_start_listening();
+}
+
 void jarvis_turn_init(void)
 {
     /* The mic's silence gate ends the utterance for us. */
     jarvis_audio_set_silence_cb(jarvis_turn_stop_listening);
+    /* Optional: hands-free barge-in (only fires on the AFE build). */
+    jarvis_audio_set_barge_cb(jarvis_turn_voice_barge_in);
 }
 
 void jarvis_turn_start_listening(void)

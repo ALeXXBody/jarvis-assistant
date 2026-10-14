@@ -28,3 +28,15 @@ dependencies:
   # Without it CONFIG_ESP_WIFI_REMOTE_ENABLED does not exist and Wi-Fi is
   # compiled out ("radio unavailable" on the setup sheet).
   espressif/esp_wifi_remote: "^1.5.3"
+  # --- Optional: ESP-SR audio front-end (AEC + NS + VAD) -------------------
+  # Conditional on the project Kconfig symbol JARVIS_ENABLE_ESP_SR (defined in
+  # src/Kconfig.projbuild), so the default `jarvis-panel` build does NOT
+  # download esp-sr or its ~180 MB esp-dl dependency. Build the
+  # `jarvis-panel-sr` env to pull this in (see platformio.ini).
+  #
+  # The `$CONFIG{...}` Kconfig conditional requires ESP-IDF >= 5.5 and a
+  # symbol that is defined in the project (not in a transitive dependency).
+  espressif/esp-sr:
+    version: "2.6.0"
+    matches:
+      - if: "$CONFIG{JARVIS_ENABLE_ESP_SR} == True"

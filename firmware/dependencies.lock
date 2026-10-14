@@ -108,6 +108,6 @@ direct_dependencies:
 - espressif/esp_websocket_client
 - espressif/esp_wifi_remote
 - idf
-manifest_hash: 8b591b9b9ff94c8afc430813521e42b4704277abb28a9925a84ffac3f51174c5
+manifest_hash: 3b0ccf94149350c9a5742f31dc520a70ebdb0539a1be33953babe7d83dd7ac17
 target: esp32p4
 version: 3.0.0

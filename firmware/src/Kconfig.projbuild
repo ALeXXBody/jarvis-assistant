@@ -1,0 +1,34 @@
+menu "JARVIS satellite"
+
+config JARVIS_ENABLE_ESP_SR
+    bool "Audio front-end: AEC + VAD (hands-free voice barge-in)"
+    default n
+    help
+        Route the microphone through the Espressif ESP-SR audio front-end
+        (AFE) on the ESP32-P4.
+
+        Without this the panel is push-to-talk: the mic is opened only on a tap
+        and is closed while the reply plays, so it cannot hear you mid-answer
+        and every turn starts with a tap.
+
+        With this enabled the AFE adds
+
+          * AEC - subtracts the panel's own playback from the mic signal, so
+                  the mic can stay open while J.A.R.V.I.S. talks (voice
+                  barge-in: just start speaking to interrupt);
+          * NS  - neural noise suppression ahead of ASR;
+          * VAD - a real voice-activity detector for end-of-speech, which is
+                  steadier than the raw RMS gate and cuts the trailing pause.
+
+        Enabling this compiles in the espressif/esp-sr (and esp-dl) components,
+        adds a `model` flash partition for the AFE models and requires the
+        model image to be flashed next to the app. The dedicated
+        `jarvis-panel-sr` PlatformIO environment wires all of that up; build it
+        instead of `jarvis-panel`.
+
+        Leave this off (the default) for the original push-to-talk firmware.
+        When off, esp-sr is not even downloaded (the dependency in
+        src/idf_component.yml is gated on this symbol), so the default build is
+        byte-for-byte unchanged.
+
+endmenu

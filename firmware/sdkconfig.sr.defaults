@@ -1,0 +1,29 @@
+# JARVIS satellite — ESP-SR audio front-end profile (jarvis-panel-sr only).
+#
+# Appended to sdkconfig.defaults by the jarvis-panel-sr env's
+# board_build.cmake_extra_args (see platformio.ini). The base
+# sdkconfig.defaults is still applied first; values here win.
+#
+# Keep this file deliberately small: every symbol added here is a divergence
+# from the shipped `jarvis-panel` firmware. esp-sr's own P4 AFE test config
+# also turns on COMPILER_OPTIMIZATION_PERF and a 128-byte L2 cache line, but
+# those change codegen / cache behaviour for the whole image (including the
+# timing-sensitive JD9365 panel init), so they are NOT enabled here.
+
+# Compile in the audio front-end and (via idf_component.yml) pull esp-sr.
+CONFIG_JARVIS_ENABLE_ESP_SR=y
+
+# Use the SR partition table: same as partitions.csv but with a 2 MB `model`
+# partition carved out of the unused `assets` reserve.
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.sr.csv"
+
+# AFE models are packed into the `model` partition and mapped from flash.
+CONFIG_MODEL_IN_FLASH=y
+CONFIG_AFE_INTERFACE_V1=y
+
+# Neural noise suppression + VAD (the vendor's own esp32p4 AFE config).
+# Both live in the model partition; esp-dl is pulled in as their dependency.
+# No WakeNet model is selected — "Jarvis" is not an off-the-shelf Espressif
+# wake word, and the AFE is used for AEC/VAD rather than key-word spotting.
+CONFIG_SR_NSN_NSNET2=y
+CONFIG_SR_VADN_VADNET1_MEDIUM=y

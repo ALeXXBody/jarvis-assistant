@@ -93,3 +93,45 @@
 #else
 #define JARVIS_HAVE_WIFI 0
 #endif
+
+/* --- ESP-SR audio front-end (optional) ---------------------------------- */
+/* Enabled by CONFIG_JARVIS_ENABLE_ESP_SR (declared in src/Kconfig.projbuild,
+ * set by the `jarvis-panel-sr` PlatformIO env). With it off, esp-sr is not
+ * even downloaded and jarvis_afe.c compiles to inert stubs, so the default
+ * `jarvis-panel` firmware is unchanged. */
+#if defined(CONFIG_JARVIS_ENABLE_ESP_SR) && CONFIG_JARVIS_ENABLE_ESP_SR
+#define JARVIS_HAVE_AFE 1
+#else
+#define JARVIS_HAVE_AFE 0
+#endif
+
+#if JARVIS_HAVE_AFE
+/* Playback reference ring handed to the AEC. It only has to cover the gap
+ * between the play task submitting audio to the codec and the AFE feed task
+ * draining it. Peak occupancy is one play burst (60 ms) plus one feed cycle
+ * (32 ms), so a quarter-second is generous — and it lives in .bss, so there is
+ * no reason to make it bigger than that. */
+#define JARVIS_AFE_REF_BYTES        (JARVIS_SAMPLE_RATE * 2 / 4)
+
+/* End of speech. The AFE reports VAD_SILENCE only after it has seen
+ * vad_min_noise_ms of quiet, so this value *is* the pause that ends a turn —
+ * there is no extra silence timer on top. 700 ms reads as natural, and unlike
+ * a fixed RMS threshold it does not cut people off when they pause briefly
+ * between words. */
+#define JARVIS_AFE_VAD_SILENCE_MS   700
+#define JARVIS_AFE_VAD_SPEECH_MS    128        /* min speech to latch (>32)   */
+#define JARVIS_AFE_VAD_DELAY_MS     128        /* pre-roll kept for the ASR   */
+
+/* Hands-free barge-in arming. A speech onset only counts as a deliberate
+ * interruption after this much continuous quiet, which rules out the tail of
+ * the user's own utterance still hanging over in the VAD. */
+#define JARVIS_AFE_BARGE_ARM_MS     400
+
+/* Playback settle window. The AEC needs a few hundred ms of far-end audio
+ * before it models the speaker properly, so until playback has been running
+ * this long a "speech" onset is far more likely to be echo than a person.
+ * Without this, J.A.R.V.I.S. would interrupt itself the moment a reply started.
+ * The gap below is what distinguishes "still playing" from "already stopped". */
+#define JARVIS_AFE_BARGE_SETTLE_MS  300
+#define JARVIS_AFE_PLAY_GAP_MS      150
+#endif

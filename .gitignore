@@ -18,10 +18,12 @@ flash/partitions.bin
 flash/ota_data_initial.bin
 flash/firmware.bin
 
-# Generated sdkconfig (rebuilt from sdkconfig.defaults on every build)
+# Generated sdkconfig (rebuilt from sdkconfig.defaults on every build).
+# The committed files are the *defaults* profiles; every per-env sdkconfig
+# (sdkconfig.jarvis-panel, sdkconfig.jarvis-panel-sr, ...) is generated.
 firmware/sdkconfig
-firmware/sdkconfig.jarvis-panel
 firmware/sdkconfig.old
+firmware/sdkconfig.jarvis-panel*
 
 # --- Python ---------------------------------------------------------------
 __pycache__/

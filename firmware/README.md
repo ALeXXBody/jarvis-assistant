@@ -68,6 +68,62 @@ ESP32-P4 needs the **pioarduino** platform
 ESP-IDF v5.5.x and the RISC-V toolchain. `platformio.ini` already points at it.
 Board definition: `boards/gc_jc8012p4a1c.json`.
 
+## Optional: hands-free audio front-end (`jarvis-panel-sr`)
+
+The default `jarvis-panel` firmware is **push-to-talk**: tapping the orb opens
+the mic, and the mic closes again while J.A.R.V.I.S. answers. The
+`jarvis-panel-sr` environment builds the same application with Espressif's
+**ESP-SR audio front-end (AFE)** compiled in, which adds:
+
+| Stage | What it buys |
+|---|---|
+| **AEC** (acoustic echo cancellation) | subtracts the panel's own playback from the mic, so the mic can stay open while J.A.R.V.I.S. is talking — **start speaking and it interrupts**, no tap needed |
+| **NS** (noise suppression) | a cleaner signal for the speech recogniser |
+| **VAD** (voice-activity detection) | a real end-of-speech signal, steadier than a fixed RMS threshold, so turns end at the right moment |
+
+```bash
+# first build downloads esp-sr + esp-dl (~300 MB) and takes a while
+pio run -e jarvis-panel-sr
+pio run -e jarvis-panel-sr -t upload
+pio device monitor -e jarvis-panel-sr
+```
+
+What's different about this environment (and why):
+
+* `sdkconfig.sr.defaults` is layered on top of `sdkconfig.defaults` via
+  `board_build.cmake_extra_args` (PlatformIO's `custom_sdkconfig` option is
+  Arduino-only, so it can't be used here). It sets
+  `CONFIG_JARVIS_ENABLE_ESP_SR=y` and picks the `nsnet2` + `vadnet1` models.
+* `partitions.sr.csv` adds a 2 MB **`model`** partition, carved out of the
+  unused `assets` reserve. Everything below `0x7C0000` — bootloader, NVS, OTA
+  slots — is byte-identical to `partitions.csv`, so switching between the two
+  builds never disturbs settings or update state.
+* `scripts/esp_sr_model.py` packs the selected models with esp-sr's own
+  `movemodel.py` and flashes the result to the `model` partition. ESP-IDF does
+  this from a CMake custom target that **PlatformIO never runs** (it links the
+  ELF through SCons instead of the CMake `all` target), so the hook reproduces
+  it explicitly.
+
+The esp-sr dependency itself is gated in `src/idf_component.yml` on the
+`JARVIS_ENABLE_ESP_SR` symbol declared in `src/Kconfig.projbuild`. On the
+default build the symbol is off, so esp-sr is **not downloaded and not linked**
+— `jarvis_afe.c` compiles to inert stubs and the firmware is unchanged (measured: 1365698 B flash / 45196 B RAM, the same
+as before this feature was added).
+
+The gating is symmetric: building `jarvis-panel` removes
+`managed_components/espressif__esp-sr` again, so **alternating between the two
+environments re-downloads esp-sr (~240 MB) every time you switch back**. Build
+one environment to completion before switching if you are short on bandwidth.
+
+> If you edit `sdkconfig.sr.defaults`, delete the generated
+> `sdkconfig.jarvis-panel-sr` (or run `-t fullclean`) before rebuilding:
+> ESP-IDF only applies sdkconfig defaults to symbols it has not seen before.
+
+Tunables live in `src/jarvis_config.h` (`JARVIS_AFE_*`): the end-of-speech
+pause (`JARVIS_AFE_VAD_SILENCE_MS`), and the barge-in arming window
+(`JARVIS_AFE_BARGE_ARM_MS` — how much quiet must precede a speech onset for it
+to count as a deliberate interruption).
+
 ## Over-the-air updates (OTA)
 
 After the first cable flash the panel updates itself from a release URL — by
@@ -147,6 +203,11 @@ firmware/
 ## Status
 
 * Builds clean (no warnings) for `esp32p4`; Flash ≈ 34 %, static RAM ≈ 6 %.
+* Two environments build green: `jarvis-panel` (push-to-talk — 1365698 B flash
+  / 45196 B RAM, unchanged) and `jarvis-panel-sr` (opt-in ESP-SR AFE, 2017116 B
+  flash / 86972 B RAM). The AFE path compiles and links but has **not** been
+  tuned on hardware yet — echo-convergence and endpoint timing need listening
+  on the panel. See `docs/BRINGUP.md`.
 * **Running on hardware.** Display (JD9365 direct-framebuffer), touch (GSL3680)
   and Wi-Fi (ESP-Hosted to the on-board ESP32-C6 over SDIO) are confirmed on
   the panel; the audio path (ES8311 mic + speaker) is in bring-up. See

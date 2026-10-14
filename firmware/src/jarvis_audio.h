@@ -37,6 +37,14 @@ void jarvis_audio_flush(void);
 typedef void (*jarvis_audio_silence_cb_t)(void);
 void jarvis_audio_set_silence_cb(jarvis_audio_silence_cb_t cb);
 
+/* Called when the user starts speaking while NOT capturing — i.e. they are
+ * talking over a reply. Only fires on the ESP-SR AFE build (jarvis-panel-sr),
+ * where the echo canceller keeps the mic usable during playback; on the
+ * push-to-talk build the mic is closed while J.A.R.V.I.S. speaks, so this
+ * never fires and the handler is optional. */
+typedef void (*jarvis_audio_barge_cb_t)(void);
+void jarvis_audio_set_barge_cb(jarvis_audio_barge_cb_t cb);
+
 /* 0..100, non-blocking. */
 void jarvis_audio_set_volume(int percent);
 
