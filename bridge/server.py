@@ -496,14 +496,32 @@ class VoicePipelineServer:
                 timing.first_tts_audio_byte_monotonic = time.perf_counter()
             yield pcm
 
-    def piper_synthesize(self, model: str, text: str):
-        """Lazily load (and cache) the Piper voice, then synthesize. Iterator."""
+    def load_piper(self, model: str):
+        """Load (and cache) the Piper voice — ~3 s the first time, free after."""
         if self._piper_model != model or self._piper_voice is None:
             from piper import PiperVoice
             self._piper_voice = PiperVoice.load(model)
             self._piper_model = model
             print(f"TTS: piper loaded {os.path.basename(model)}", flush=True)
-        return self._piper_voice.synthesize(text)
+        return self._piper_voice
+
+    def piper_synthesize(self, model: str, text: str):
+        """Lazily load (and cache) the Piper voice, then synthesize. Iterator."""
+        return self.load_piper(model).synthesize(text)
+
+    def warm_tts(self) -> None:
+        """Pay Piper's model-load cost at startup, not inside the first reply.
+
+        The load is ~3 s. Left lazy it lands after the transcript, where it
+        delays the first audible byte by seconds — including the spoken ack,
+        which is meant to cover exactly that silence.
+        """
+        voice = self.cfg.get("voice") or {}
+        if str(voice.get("provider", "")).lower() != "piper":
+            return  # cloud TTS has no local model to load
+        model = voice.get("model")
+        if model:
+            self.load_piper(str(model))
 
     def _elevenlabs_chunks(self, text: str, timing: TurnTiming) -> Iterator[bytes]:
         voice = self.cfg["voice"]
@@ -652,6 +670,13 @@ class VoicePipelineServer:
         texts = [t.strip() for t in (h.get("ack_texts") or []) if isinstance(t, str) and t.strip()]
         if delay <= 0 or not texts:
             return None
+        # The knob reads as "seconds after the user stopped speaking", but
+        # _start_ack only runs once STT has finished — and STT takes seconds.
+        # Without this correction the cue always lands late by exactly the STT
+        # cost, so a setting of 2 s was heard at ~5 s.
+        if timing.end_of_speech_monotonic is not None:
+            elapsed = time.perf_counter() - timing.end_of_speech_monotonic
+            delay = max(0.0, delay - elapsed)
         return asyncio.create_task(self._speak_ack(ws, timing, conn, delay, texts))
 
     async def _speak_ack(
@@ -855,6 +880,11 @@ async def warm_pipeline() -> None:
             print("STT pipeline warmed.", flush=True)
         except Exception as exc:
             print(f"STT warm failed (remote STT still available): {exc}", flush=True)
+        try:
+            await asyncio.to_thread(get_pipeline().warm_tts)
+            print("TTS pipeline warmed.", flush=True)
+        except Exception as exc:
+            print(f"TTS warm failed (replies will still synthesize): {exc}", flush=True)
 
     asyncio.get_running_loop().create_task(warm())
 

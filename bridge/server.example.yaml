@@ -14,11 +14,12 @@ hermes:
   conversation: jarvis-main          # shared voice + HUD thread name
   session_key: jarvis:user:main      # stable long-term memory scope
   timeout: 240
-  # Spoken filler for long agent turns: if no reply sentence has started
-  # synthesizing after this many seconds, speak the next ack_text. 0 disables.
-  # ~1.5-2.5s is the useful range; the cue is skipped entirely when the agent
-  # answers quickly, so it never delays a snappy reply.
-  ack_after_seconds: 0
+  # Spoken filler: if the reply has not started within this many seconds of the
+  # END OF YOUR SPEECH (STT time is already discounted), speak the next ack_text.
+  # 0 disables. The cue is cancelled the moment real reply audio starts, and is
+  # skipped when the agent answers quickly — but on a 10s+ turn any useful value
+  # will speak on most turns, which is the silence it exists to cover.
+  ack_after_seconds: 2.0
   ack_texts: ["On it.", "Still working.", "Almost there."]
   fallback_provider: anthropic
   instructions: >

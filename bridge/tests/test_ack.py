@@ -10,7 +10,11 @@ run under asyncio against stubs. The scenarios covered are:
   3. ack_after_seconds <= 0 schedules nothing;
   4. a reply arriving mid-ack waits on tts_lock rather than interleaving two
      PCM streams on the same socket;
-  5. successive turns rotate through ack_texts.
+  5. successive turns rotate through ack_texts;
+  6. ack_after_seconds is measured from the user's last word, not from STT
+     (the cue is corrected by however long STT took);
+  7. when STT alone already overran the setting, the cue still speaks at once
+     rather than waiting a negative delay.
 """
 
 from __future__ import annotations
@@ -41,7 +45,7 @@ def build_ns():
     tree = ast.parse(src)
 
     methods = {"_start_ack", "_speak_ack", "_cancel_pending_ack"}
-    pieces: list[str] = ["from dataclasses import dataclass, field", "import asyncio"]
+    pieces: list[str] = ["from dataclasses import dataclass, field", "import asyncio", "import time"]
 
     conn_src = None
     for node in tree.body:
@@ -190,6 +194,43 @@ async def scenario_ack_rotates():
     assert pipe.synth_starts == ["On it.", "Still working.", "On it."], pipe.synth_starts
 
 
+async def scenario_delay_measured_from_end_of_speech():
+    """ack_after_seconds counts from the last word, not from the transcript.
+
+    _start_ack only runs once STT has finished, so without the correction a 1 s
+    setting is heard at 1 s + STT cost. Here STT is pretending to have already
+    burned 0.4 s, so the cue must start ~0.6 s after this call.
+    """
+    cfg = {"hermes": {"ack_after_seconds": 1.0, "ack_texts": ["On it."]}}
+    pipe = FakePipeline(cfg)
+    ws, conn = FakeWS(), ConnState()
+    timing = TurnTiming(turn_id=5)
+    timing.end_of_speech_monotonic = time.perf_counter() - 0.4
+    started = time.perf_counter()
+    task = pipe._start_ack(ws, timing, conn)
+    await asyncio.wait_for(asyncio.shield(task), timeout=2.0)
+    waited = time.perf_counter() - started
+    assert 0.45 <= waited <= 0.85, (
+        f"delay not corrected: waited {waited:.2f}s for a 1.0s setting minus 0.4s of STT"
+    )
+    assert pipe.synth_starts == ["On it."], pipe.synth_starts
+
+
+async def scenario_delay_clamps_when_stt_overran_it():
+    """STT slower than the setting must not become a negative wait."""
+    cfg = {"hermes": {"ack_after_seconds": 1.0, "ack_texts": ["On it."]}}
+    pipe = FakePipeline(cfg)
+    ws, conn = FakeWS(), ConnState()
+    timing = TurnTiming(turn_id=6)
+    timing.end_of_speech_monotonic = time.perf_counter() - 5.0
+    started = time.perf_counter()
+    task = pipe._start_ack(ws, timing, conn)
+    await asyncio.wait_for(asyncio.shield(task), timeout=2.0)
+    waited = time.perf_counter() - started
+    assert waited < 0.3, f"negative delay not clamped: waited {waited:.2f}s"
+    assert pipe.synth_starts == ["On it."], pipe.synth_starts
+
+
 async def main():
     started = time.perf_counter()
     await scenario_fast_reply()
@@ -197,6 +238,8 @@ async def main():
     await scenario_no_ack_when_disabled()
     await scenario_interleave_guard()
     await scenario_ack_rotates()
+    await scenario_delay_measured_from_end_of_speech()
+    await scenario_delay_clamps_when_stt_overran_it()
     print(f"all ack tests passed in {time.perf_counter() - started:.2f}s")
 
 

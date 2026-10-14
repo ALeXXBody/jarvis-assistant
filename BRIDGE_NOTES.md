@@ -50,15 +50,38 @@ Two knobs shape how a reply reaches the ear. Both are in `config/server.yaml`
   for its full stop costs a second of silence before any audio. Every chunk pays
   Piper's startup, so going much below ~40 makes the reply choppy and no faster
   overall. `0` restores full-sentence-only splitting.
-- **`hermes.ack_after_seconds`** (default `0` = off) + **`ack_texts`** — if no
-  reply sentence has started synthesizing after this many seconds, speak the next
-  ack text as filler (rotating through the list across turns). The ack is
-  cancelled the moment the real reply is ready, and skipped entirely when the
-  agent answers quickly, so a snappy turn is never prefixed with filler. Useful
-  range is ~1.5–2.5 s. The ack's audio is written under `conn.tts_lock` and the
-  sentence loop waits on that lock, so the two PCM streams never interleave
-  (two overlapping streams arrive as noise, not two voices). Ack metrics are
-  kept out of the turn's latency numbers.
+- **`hermes.ack_after_seconds`** (default `0` = off, live = `2.0`) +
+  **`ack_texts`** — if the reply has not started within this many seconds of the
+  **end of your speech**, speak the next ack text as filler (rotating through the
+  list across turns). The reference point is the last word, *not* the transcript:
+  `_start_ack` only runs once STT has finished, so the elapsed STT time is
+  subtracted — without that, a `2` setting was heard at ~4.8 s. If STT alone
+  overran the setting, the delay clamps to zero and the cue speaks as soon as the
+  transcript lands. It is cancelled the moment real reply audio starts and
+  skipped when the agent answers quickly, so a snappy turn is never prefixed with
+  filler — but with turns this slow, any useful value speaks on most turns, and
+  that silence is exactly what the cue exists to cover. The ack's audio is
+  written under `conn.tts_lock` and the sentence loop waits on that lock, so the
+  two PCM streams never interleave (two overlapping streams arrive as noise, not
+  two voices). Ack metrics are kept out of the turn's latency numbers.
+
+### Startup warm-up
+
+STT is warmed at startup — and so is Piper, because its lazy model load costs
+~3 s and landed *inside the first turn*, delaying the first audible byte
+including the ack whose entire job is to cover that pause. Measured on the live
+host with `probe_audio_timing.py`, same turn shape, time to the first audio byte
+after end-of-speech:
+
+| `ack_after_seconds` | Piper warm | first audio | reply burst |
+|---|---|---|---|
+| `0` (off) | — | 14.8 s | — |
+| `2.0` | no | 8.3 s | 25.2 s |
+| `2.0` | yes | 4.8 s | 26.2 s |
+| `2.0`, delay corrected | yes | **2.9 s** | 13.0 s |
+
+Turn-to-turn LLM variance is large (prefix-cache warmth), so the reply-burst
+column is not comparable across rows; the first-audio column is the point.
 
 The chunker and ack task have stdlib-only tests — run them anywhere the repo is
 checked out, no venv or models needed:
@@ -67,6 +90,11 @@ checked out, no venv or models needed:
 python3 bridge/tests/test_chunker.py
 python3 bridge/tests/test_ack.py
 ```
+
+To measure what a tuning change actually does to the listener's experience, use
+`bridge/tests/probe_audio_timing.py` (needs the service venv): it streams a WAV
+through the real endpoint and reports when the first audio byte arrives, and how
+many separate bursts follow.
 
 ## Disconnect handling (this repo's `bridge/server.py`)
 
