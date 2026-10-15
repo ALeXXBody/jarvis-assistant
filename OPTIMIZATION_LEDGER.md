@@ -45,10 +45,29 @@ never leaves you staring at THINKING for a minute.
 | # | item | why | status |
 |---|---|---|---|
 | A | Ollama keep-alive `-1`, measure warm TTFT | kills the 116 s cold start | **done** (cold 24 s, warm 5.2 s) |
-| B | warm the LLM during bridge startup | covers the one cold turn after a brain reboot | open |
-| C | faster first clause: first chunk starts small (~20–25 chars), steady-state chunks 60+ | shaves 0.3–1 s off "first words" | open |
+| B | warm the LLM during bridge startup | covers the one cold turn after a brain reboot | **done** (`LLM warmed (7.4s)` in the journal at start) |
+| C | faster first clause: first chunk starts small (~24 chars), steady-state chunks 60+ | shaves 0.3–1 s off "first words" | **done** (`voice.first_chunk_chars: 24`) |
 | D | STT: finalise faster — vad_filter + use the last partial as the final transcript when no better final arrives in time | 1–2 s saved per turn; fixes "No transcript detected" tails | open |
-| E | measure the full warm chain through the real bridge (my `ws_e2e_test.py` harness) and put today's numbers in this table before/after every change | no blind tuning | **done** (below) |
+| E | measure the full warm chain through the real bridge (my `ws_e2e_test.py` harness) and put today's numbers in this table before/after every change | no blind tuning | **done** |
+
+### P1.5 — tool discipline on the voice channel (the "hello costs 2 minutes" killer)
+
+Full CLI toolset stays enabled **by explicit user decision**. What changed is
+the agent's *prompt*: `hermes.instructions` now carries a tool-discipline
+clause — tools only when the request genuinely needs house/system state or an
+action; greetings, small talk, mental arithmetic and general knowledge answer
+directly. Measured on the same test utterance ("What is 17 × 4?"):
+
+| | before | after |
+|---|---|---|
+| tools run | `execute_code` + `terminal` | 0 |
+| LLM TTFT | 25.8 s | 6.6 s |
+| end-of-speech → first audio | 28.8 s | **8.0 s** |
+| STT finalize | 2.9 s | 1.35 s |
+
+(The 116–133 s spikes from Oct 14 were the same class: tool runs + model
+eviction; both are handled — eviction by keep-alive, tool grabbing by the
+discipline clause.)
 
 ### P2 — panel audio front-end (ESP-SR build, needs one USB flash)
 

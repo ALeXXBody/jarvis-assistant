@@ -21,6 +21,11 @@ hermes:
   # will speak on most turns, which is the silence it exists to cover.
   ack_after_seconds: 2.0
   ack_texts: ["On it.", "Still working.", "Almost there."]
+  # Startup warm-up of the local LLM server so the first voice turn after a
+  # service start never pays the model load (only meaningful when the brain
+  # hosts the model); override the model if your llmproxy serves something else.
+  llm_warm_url: "http://127.0.0.1:11440/v1/chat/completions"
+  llm_warm_model: "gpt-oss:20b"
   fallback_provider: anthropic
   instructions: >
     You are speaking aloud through a voice pipeline. Replies are converted
@@ -28,6 +33,12 @@ hermes:
     no code blocks. Default to one to three short sentences unless asked for
     more detail. Speak numbers, dates, times and phone numbers as natural
     spoken words. Never speak secrets, API keys, or passwords aloud.
+    Tool discipline: you are on a live voice channel. The person is waiting
+    in real time, and every tool round-trip is silence on the panel. Use
+    tools ONLY when the request genuinely needs house or system state, or
+    performs an action (devices, files, schedules). For greetings, small
+    talk, arithmetic you can do mentally, and general-knowledge questions,
+    answer directly from the conversation and do not run any tool.
 
 stt:
   model: small.en           # LOCAL faster-whisper model (downloads on first use)
@@ -74,6 +85,9 @@ voice:
   # Piper's startup, so 40-80 is the sweet spot — going far below that makes the
   # reply choppy and no faster overall.
   min_chunk_chars: 60
+  # The FIRST chunk uses a smaller floor so the reply's opening words play
+  # immediately; the rest of the reply still respects min_chunk_chars.
+  first_chunk_chars: 24
 
 persona:                     # used only by the anthropic fallback path
   system_prompt: >

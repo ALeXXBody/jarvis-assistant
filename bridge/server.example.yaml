@@ -81,6 +81,7 @@ voice:
   # Piper's startup, so 40-80 is the sweet spot — going far below that makes the
   # reply choppy and no faster overall.
   min_chunk_chars: 60
+  first_chunk_chars: 24
 
 persona:                     # used only by the anthropic fallback path
   system_prompt: >

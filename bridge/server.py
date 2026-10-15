@@ -569,6 +569,17 @@ class VoicePipelineServer:
         full_response: list[str] = []
         spoken = False
         min_chars = int((self.cfg.get("voice") or {}).get("min_chunk_chars", 60) or 0)
+        # The first chunk gets a smaller floor: the reply's opening words are
+        # usually short ("Good evening, sir.") and waiting for 60 characters
+        # before the first audio pushes the whole turn's perceived latency.
+        # Steady-state chunks stay big, so the rest of the reply still spends
+        # Piper's per-synth overhead on full sentences.
+        try:
+            first_chars = int(
+                (self.cfg.get("voice") or {}).get("first_chunk_chars", 24) or 0
+            ) or min_chars
+        except (TypeError, ValueError):
+            first_chars = min_chars
         await ws.send_json({"type": "agent_status", "state": "thinking"})
 
         q: asyncio.Queue = asyncio.Queue()
@@ -613,7 +624,8 @@ class VoicePipelineServer:
                 # kind == "text"
                 full_response.append(value)
                 pending += value
-                sentences, pending = self._extract_complete_sentences(pending, min_chars)
+                sentences, pending = self._extract_complete_sentences(
+                    pending, min_chars if spoken else first_chars)
                 for sentence in sentences:
                     clean = self._clean_for_tts(sentence)
                     if not clean:
@@ -885,6 +897,28 @@ async def warm_pipeline() -> None:
             print("TTS pipeline warmed.", flush=True)
         except Exception as exc:
             print(f"TTS warm failed (replies will still synthesize): {exc}", flush=True)
+
+        # Keep the local LLM resident while nobody is listening. Without this,
+        # a fresh service start made the user's FIRST sentence pay the model
+        # load (~25-120 s of THINKING) — the exact "stuck on thinking" rage
+        # this pipeline existed to prevent. One tiny no-op chat; harmless if
+        # the LLM host is a different box (the request is best-effort).
+        import urllib.request as _ureq
+        h = (CFG.get("hermes") or {})
+        url = h.get("llm_warm_url") or "http://127.0.0.1:11440/v1/chat/completions"
+        model = h.get("llm_warm_model") or "gpt-oss:20b"
+        try:
+            t0 = time.perf_counter()
+            req = _ureq.Request(
+                url,
+                data=json.dumps({"model": model, "stream": False, "messages":
+                                 [{"role": "user", "content": "OK"}]}).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            _ureq.urlopen(req, timeout=600).read()
+            print(f"LLM warmed ({time.perf_counter() - t0:.1f}s).", flush=True)
+        except Exception as exc:
+            print(f"LLM warm skipped (first turn may load the model): {exc}", flush=True)
 
     asyncio.get_running_loop().create_task(warm())
 
