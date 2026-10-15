@@ -85,6 +85,7 @@ but won't enable the AFE).
 |---|---|---|
 | F | flash SR build (fresh install, v0.1.x-sr) on the panel | waiting on the user's flash session |
 | H2 | gate tightening (no-speech abort at 3 s instead of 20 s of streamed silence; post-speech hang 900 -> 700 ms) | **committed** — builds green both envs, ships with the next flashing session |
+| H3 | keyboard taps dropped — the single global 350 ms debounce ate every keystroke during fast typing ("press 0 two-three times") | **committed** — keyboard re-taps at 90 ms (JARVIS_KBD_KEY_MS), toggle zones stay at 350 ms, 60 ms contact-bounce floor at the touch layer; builds green both envs |
 | G | tune `JARVIS_AFE_VAD_SILENCE_MS` / barge-in arm times from live logs | blocked on F |
 | H | lower the RMS-silence gate/timeout for the *legacy* build too (safe change) | open |
 

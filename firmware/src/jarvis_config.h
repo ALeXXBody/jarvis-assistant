@@ -72,7 +72,10 @@
 /* --- Wake / trigger ----------------------------------------------------- */
 /* v1 trigger = tap the orb / serial console. ESP-SR WakeNet hooks live in
  * jarvis_wake.c behind JARVIS_ENABLE_WAKENET (needs a flashed model). */
-#define JARVIS_TAP_DEBOUNCE_MS  350
+#define JARVIS_TAP_DEBOUNCE_MS  350    /* screen-wide toggle zones          */
+#define JARVIS_TAP_BOUNCE_MS    60     /* same-contact bounce, all taps     */
+#define JARVIS_KBD_KEY_MS       90     /* keyboard re-tap floor: typing     */
+                                       /* must NOT drop keys                */
 
 /* --- OTA (over-the-air firmware updates) -------------------------------- */
 /* Base URL of the directory the updater GETs `firmware.bin` from. Default:

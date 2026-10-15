@@ -30,7 +30,14 @@ static void touch_task(void *arg)
         bool now = bsp_touch_read(&pt);
         TickType_t t = xTaskGetTickCount();
 
-        if (now && !was && (t - last) > pdMS_TO_TICKS(JARVIS_TAP_DEBOUNCE_MS)) {
+        /* Rising edge only. The rate rule lives in jarvis_ui_tap(): the
+         * keyboard accepts a re-tap after 90 ms (fast typing must land
+         * every key), the screen-wide toggle zones stay debounced at 350
+         * ms. Here we only guard against physical contact bounce within
+         * one scan period (JARVIS_TAP_BOUNCE_MS). A single global 350 ms
+         * gate used to swallow every second keystroke when typing fast —
+         * "I have to press 0 two-three times".                       */
+        if (now && !was && (t - last) > pdMS_TO_TICKS(JARVIS_TAP_BOUNCE_MS)) {
             last = t;
             ESP_LOGI(TAG, "tap at %u,%u (raw %u,%u)", pt.x, pt.y, pt.raw_x, pt.raw_y);
             /* the UI owns all on-panel interaction: settings gear, settings

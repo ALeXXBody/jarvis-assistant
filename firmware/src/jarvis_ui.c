@@ -897,6 +897,26 @@ static void main_tap(uint16_t px, uint16_t py)
 
 void jarvis_ui_tap(uint16_t x, uint16_t y)
 {
+    /* Per-context tap rate rule (see jarvis_wake.c): the keyboard needs fast
+     * re-taps — the old global 350 ms debounce swallowed every keystroke
+     * during fast typing — while the full-screen toggle/gear zones stay at
+     * 350 ms so one contact cannot fire twice.                            */
+    static TickType_t last_wide;
+    static TickType_t last_key;
+    TickType_t t = xTaskGetTickCount();
+
+    if (s_set_open && y >= KBD_Y0) {
+        if ((t - last_key) < pdMS_TO_TICKS(JARVIS_KBD_KEY_MS)) {
+            return;
+        }
+        last_key = t;
+    } else {
+        if ((t - last_wide) < pdMS_TO_TICKS(JARVIS_TAP_DEBOUNCE_MS)) {
+            return;
+        }
+        last_wide = t;
+    }
+
     if (s_set_open) {
         settings_tap(x, y);
         return;
