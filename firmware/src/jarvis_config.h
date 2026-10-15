@@ -46,7 +46,12 @@
 
 /* Capture gating */
 #define JARVIS_MAX_LISTEN_MS    20000          /* safety cap per utterance */
-#define JARVIS_SILENCE_STOP_MS  900            /* auto-stop after silence  */
+#define JARVIS_NO_SPEECH_MS     3000           /* grew past this with no   */
+                                               /* speech: stop early; the  */
+                                               /* bridge answers "I didn't */
+                                               /* catch that." instead of  */
+                                               /* 20 s of streamed silence */
+#define JARVIS_SILENCE_STOP_MS  700            /* auto-stop after silence  */
 #define JARVIS_SILENCE_ARM_MS   250            /* ignore initial silence   */
 #define JARVIS_RMS_SPEECH       300            /* int16 RMS speech thresh  */
 #define JARVIS_RMS_SILENCE      220            /* int16 RMS silence thresh */

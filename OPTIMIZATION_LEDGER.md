@@ -84,18 +84,40 @@ but won't enable the AFE).
 | # | item | status |
 |---|---|---|
 | F | flash SR build (fresh install, v0.1.x-sr) on the panel | waiting on the user's flash session |
+| H2 | gate tightening (no-speech abort at 3 s instead of 20 s of streamed silence; post-speech hang 900 -> 700 ms) | **committed** — builds green both envs, ships with the next flashing session |
 | G | tune `JARVIS_AFE_VAD_SILENCE_MS` / barge-in arm times from live logs | blocked on F |
 | H | lower the RMS-silence gate/timeout for the *legacy* build too (safe change) | open |
 
-### P3 — library / tool version audit (novelty ≠ win, but zero-risk upgrades are welcome)
+### P3 — library / tool version audit (registry-checked Oct 15 — user-specified requirement)
 
-| component | current | newest | verdict |
+Policy reminder: user asked that the panel always run the *latest* component
+drivers and tools. The full dependency stack was therefore checked against
+the ESP Component Registry and the tooling upstream. Result: **everything
+shipped is already the newest released version** — with two upgrade trains
+not yet available and one piece of direct evidence that here "newer" does
+not mean "better".
+
+| component | shipped (locked) | registry latest | verdict |
 |---|---|---|---|
-| esp_hosted | 3.0.9 (field-proven) | 3.x line | **hold** — radio is sacred; only move on a verified runtime test |
-| esp-sr | 2.6.0 | 2.x | check the registry for bugfix releases with the AFE we use |
-| esp_websocket_client | 1.8.0 | — | check changelog; low risk to bump if ABI-stable |
-| ESP-IDF | 5.5.5 (pioarduino develop) | 5.6.x | hold — compiler churn for zero user benefit right now |
-| esp_wifi_remote | 1.6.5 | — | pinned pair with esp_hosted 3.0.9 — hold |
+| esp_hosted | 3.0.9 | **3.0.9** | newest (2.x is the radio killer — see P-panel history) |
+| esp_wifi_remote | 1.6.5 | **1.6.5** | newest; pinned pair with hosted 3.0.9 |
+| wifi_remote_over_eppp | 0.3.3 | **0.3.3** | newest |
+| eppp_link | 1.1.6 | **1.1.6** | newest |
+| esp_serial_slave_link | 1.1.2 | **1.1.2** | newest |
+| esp_websocket_client | 1.8.0 | **1.8.0** | newest |
+| es8311 | 1.0.0~1 | **1.0.0** | newest |
+| esp_codec_dev | 1.6.2 | 2.0.0-**beta5** | **hold** — 2.0 is pre-release; move when 2.0 stable lands |
+| esp-sr (SR env) | 2.6.0 | **2.6.0** | newest |
+| ESP-IDF / pioarduino | 5.5.5 (pioarduino develop, newest release 55.03.312-1 is also 5.5.5-based) | IDF 5.6.x exists upstream-only | **hold** — pioarduino's release train has not shipped 5.6; recheck per release |
+| PlatformIO core | 6.2.0 | same | current |
+| esptool | 5.5.0 (via toolchain) | same | current |
+| JD9365 LCD driver | **vendored** (community BSP for this exact board) | registry "newer" version | **proves newer ≠ better**: the registry build boots this panel black (documented in PANEL_AUDIT); the vendored one works |
+| GSL3680 touch driver | hand-written (no public driver exists) | none | keep |
+
+Standing rule going forward: on every release train (each `pio run` round or
+before a release), a 60-second registry diff is enough to see if any of the
+"newest" verdicts above went stale; upgrades land immediately when the
+registry moves, gated by the build + one verified flash as usual.
 
 ### P4 — panel UX polish (after P2)
 
@@ -106,4 +128,6 @@ parked until the AFE is on-device so we tune against the real thing.
 
 ## Execution order
 
-A → E → C → D → B → (user flashes SR) → G → H → remaining P4 items.
+A → E → C → tool-discipline (P1.5) → D (STT vad + graceful no-speech)
+→ panel gate tightening (committed, ships with the next flash)
+→ (user flashes SR build + latest stack) → G → H → remaining P4 items.

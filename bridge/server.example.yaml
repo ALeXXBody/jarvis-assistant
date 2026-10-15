@@ -36,6 +36,11 @@ stt:
   sample_rate: 16000
   partials: true            # live transcript while speaking
   partial_interval: 1.2     # seconds of new audio between partial passes
+  vad_filter: true          # strip trailing silence before decode (faster finalize)
+  vad_min_silence_ms: 500
+  # When the mic heard nothing, the assistant says one of these (a real
+  # speaking turn, not an error) and the panel returns to Ready.
+  empty_responses: ["I didn't catch that.", "Come again?", "Pardon?"]
   # Optional GPU worker (worker/stt_server.py on any NVIDIA machine):
   # big-model accuracy at ~0.2s. Falls back to the local model automatically.
   # remote:

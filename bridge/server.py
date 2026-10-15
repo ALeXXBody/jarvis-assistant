@@ -368,7 +368,15 @@ class VoicePipelineServer:
                     samples,
                     language="en",
                     beam_size=1,
-                    vad_filter=False,
+                    # The panel's gate appends 1-3.7 s of trailing silence to
+                    # every turn, so whisper used to decode all of it. Silero VAD
+                    # inside faster-whisper strips exactly that — cheaper, and
+                    # the finalize lands sooner.
+                    vad_filter=self.cfg["stt"].get("vad_filter", True),
+                    vad_parameters={
+                        "min_silence_duration_ms":
+                            int(self.cfg["stt"].get("vad_min_silence_ms", 500)),
+                    },
                     condition_on_previous_text=False,
                     no_speech_threshold=0.08,
                     compression_ratio_threshold=1.8,
@@ -727,6 +735,27 @@ class VoicePipelineServer:
             raise
         except Exception as exc:
             timing.errors.append(f"ack: {type(exc).__name__}: {exc}")
+
+    async def _speak_no_speech(
+        self, ws: WebSocket, timing: TurnTiming, conn: "ConnState",
+    ) -> None:
+        """Nothing usable came off the mic. Speak it like a person would —
+        a short spoken "I didn't catch that." with a real speaking state —
+        instead of dropping the panel into an error state."""
+        stt = self.cfg.get("stt") or {}
+        texts = [t.strip() for t in (stt.get("empty_responses") or [])
+                 if isinstance(t, str) and t.strip()]
+        if not texts:
+            texts = ["I didn't catch that."]
+        text = texts[conn.ack_index % len(texts)]
+        conn.ack_index += 1
+        try:
+            async with conn.tts_lock:
+                await ws.send_json({"type": "agent_status", "state": "speaking"})
+                await self._send_tts_sentence(ws, text, timing)
+                await ws.send_json({"type": "agent_status", "state": "stopped", "silent": True})
+        except Exception as exc:
+            timing.errors.append(f"no_speech: {type(exc).__name__}: {exc}")
 
     async def _async_llm_events(
         self, transcript: str, timing: TurnTiming, conversation: str,
@@ -1322,7 +1351,12 @@ async def _run_turn(ws: WebSocket, pipeline: VoicePipelineServer, conn: ConnStat
         timing.transcript = transcript
         await ws.send_json({"type": "transcript", "text": transcript})
         if not transcript:
-            await ws.send_json({"type": "error", "message": "No transcript detected."})
+            # No usable words came off the mic (a tap and silence, or a turn
+            # culled before the gate saw speech). Talking back like a person
+            # beats an error line: the panel hears "I didn't catch that."
+            # and lands back on Ready instead of a red error state, and the
+            # next turn can start immediately.
+            await pipeline._speak_no_speech(ws, timing, conn)
         else:
             if conn.interrupt_note:
                 transcript_sent = (
@@ -1334,8 +1368,8 @@ async def _run_turn(ws: WebSocket, pipeline: VoicePipelineServer, conn: ConnStat
                 transcript_sent = transcript
             conn.spoken_sentences = []
             await pipeline.stream_response_audio(ws, transcript_sent, timing, conn)
-            timing.total_done_monotonic = time.perf_counter()
-            await ws.send_json({"type": "done", "turn_id": timing.turn_id, "timing": timing.summary()})
+        timing.total_done_monotonic = time.perf_counter()
+        await ws.send_json({"type": "done", "turn_id": timing.turn_id, "timing": timing.summary()})
     except asyncio.CancelledError:
         timing.errors.append("turn cancelled (barge-in or stop)")
         raise

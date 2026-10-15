@@ -163,13 +163,15 @@ static void capture_task(void *arg)
         }
 
         bool timeout = elapsed_ms >= JARVIS_MAX_LISTEN_MS;
+        bool no_speech = !speech_seen && elapsed_ms >= JARVIS_NO_SPEECH_MS;
         bool end_of_speech = speech_seen &&
                              silence_ms >= JARVIS_SILENCE_STOP_MS &&
                              elapsed_ms >= JARVIS_SILENCE_ARM_MS;
 
-        if (timeout || end_of_speech) {
+        if (timeout || no_speech || end_of_speech) {
             ESP_LOGI(TAG, "capture stop (%s, %ums)",
-                     timeout ? "timeout" : "silence", (unsigned)elapsed_ms);
+                     timeout ? "timeout" : no_speech ? "no speech" : "silence",
+                     (unsigned)elapsed_ms);
             s_capturing = false;
             if (s_silence_cb) {
                 s_silence_cb();
