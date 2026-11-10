@@ -536,3 +536,17 @@ Full bring-up checklist + fault table: [`firmware/docs/BRINGUP.md`](firmware/doc
 | [`firmware/README.md`](firmware/README.md) | firmware-focused build/flash notes |
 | [`PANEL_RESEARCH.md`](PANEL_RESEARCH.md) | hardware research, spec sheet, architecture options |
 | [`BRIDGE_NOTES.md`](BRIDGE_NOTES.md) | brain deployment, services, restart order, latency tuning |
+
+---
+
+## Support
+
+<div align="center">
+
+### ☕ [Buy Me A Coffee — ALeXXBody](https://buymeacoffee.com/alexxbody)
+
+*All support goes into hardware parts and tokens for building more free tools for the community.*
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-alexxbody-FFDD00?logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/alexxbody)
+
+</div>
